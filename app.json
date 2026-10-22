@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Noethara Dev",
+    "slug": "noetharamobile",
+    "scheme": "noetharadev",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.noethara.dev"
+    },
+    "android": {
+      "package": "com.noethara.dev",
+      "edgeToEdgeEnabled": true
+    },
+    "experiments": {
+      "tsconfigPaths": true
+    }
+  }
+}

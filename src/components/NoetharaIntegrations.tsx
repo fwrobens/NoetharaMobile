@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   supabase, getSession, signInWithGitHub, signInWithGoogle, signInWithEmail, signUpWithEmail,
-  logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI, getGitHubToken,
+  logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI, getGitHubToken, getGitHubConnection,
   type Repo, type GithubEntry,
 } from '../lib/noetharaBackend';
 import { ModelPicker, useModelPreference } from './ModelPicker';
@@ -51,6 +51,7 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [status,setStatus]=useState<{beam:boolean;nvidia:boolean;fallback:boolean}|null>(null);
+  const [githubStatus,setGithubStatus]=useState('Not checked');
   useEffect(()=>{getSession().then(s=>setSignedIn(Boolean(s))).catch(()=>{});},[]);
   useEffect(()=>{if(signedIn)noetharaAPI.status().then(setStatus).catch(()=>setStatus(null));},[signedIn,section]);
   async function run(action:()=>Promise<unknown>) {
@@ -142,6 +143,12 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
               <Text style={styles.caption}>EXPO GO REDIRECT (ALLOWLIST IN SUPABASE)</Text><Text selectable style={styles.url}>{getOAuthReturnUrl()}</Text>
               <Text style={styles.fieldText}>For Expo Go, the development redirect can change each time the tunnel changes. For permanent deep links, use a development or standalone build with noetharadev://auth/callback.</Text>
               <Action dark title={getGitHubToken()?'Reconnect GitHub':'Connect GitHub'} disabled={loading} onPress={()=>run(signInWithGitHub)}/>
+              <Action title="Verify GitHub repository access" disabled={loading} onPress={()=>run(async()=>{
+                if (!await getGitHubConnection()) throw Error('You are signed in, but the GitHub repository token is missing. Choose Connect GitHub again.');
+                const {repos} = await noetharaAPI.repos();
+                setGithubStatus('Connected · '+repos.length+' repositories available');
+              })}/>
+              <Text style={styles.fieldText}>{githubStatus}</Text>
               <Action title="Browse GitHub repositories" onPress={openRepos}/>
             </View>
           </Section>

@@ -25,21 +25,35 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 let githubToken: string | null = null;
+let githubUserId: string | null = null;
 const GITHUB_TOKEN_KEY = 'noethara-github-provider-token';
 let callbackExchange: Promise<Session | null> | null = null;
 let processingCode = '';
+let lastExchangedCode = '';
 export function getGitHubToken() { return githubToken; }
 export function getOAuthReturnUrl() { return ExpoLinking.createURL('auth/callback'); }
-async function persistGitHubToken(token: string | null) {
+async function persistGitHubToken(token: string | null, userId?: string) {
   githubToken = token;
-  if (token) await SecureStore.setItemAsync(GITHUB_TOKEN_KEY, token);
+  githubUserId = token && userId ? userId : null;
+  if (token && userId) await SecureStore.setItemAsync(GITHUB_TOKEN_KEY,JSON.stringify({token,userId}));
   else await SecureStore.deleteItemAsync(GITHUB_TOKEN_KEY);
 }
+async function restoreGitHubToken(userId:string) {
+  if (githubToken && githubUserId === userId) return githubToken;
+  githubToken=null;githubUserId=null;
+  const stored=await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
+  if (!stored) return null;
+  try {
+    const entry=JSON.parse(stored) as {userId?:string;token?:string};
+    if (entry.userId===userId && typeof entry.token==='string') {
+      githubToken=entry.token;githubUserId=userId;return githubToken;
+    }
+  }catch{}
+  return null;
+}
 export async function getGitHubConnection() {
-  const session = await getSession();
-  if (!session) return false;
-  if (!githubToken) githubToken = await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
-  return Boolean(githubToken);
+  const session=await getSession();
+  return session ? Boolean(await restoreGitHubToken(session.user.id)) : false;
 }
 function oauthParameters(input: string): URLSearchParams {
   const url = new URL(input);
@@ -66,17 +80,19 @@ export async function handleOAuthRedirect(url: string, providerHint?: 'github' |
   const code = values.get('code');
   if (!code) return (await supabase.auth.getSession()).data.session;
   if (callbackExchange && processingCode === code) return callbackExchange;
+  if (lastExchangedCode === code) return (await supabase.auth.getSession()).data.session;
   processingCode = code;
   callbackExchange = (async () => {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) throw error;
     const session = data.session;
     if (providerHint === 'github' && session.provider_token)
-      await persistGitHubToken(session.provider_token);
+      await persistGitHubToken(session.provider_token,session.user.id);
     // If this callback was dispatched by Linking rather than openAuthSessionAsync,
     // use the provider metadata from the resulting Supabase user.
     else if (session.user.app_metadata?.provider === 'github' && session.provider_token)
-      await persistGitHubToken(session.provider_token);
+      await persistGitHubToken(session.provider_token,session.user.id);
+    lastExchangedCode = code;
     return session;
   })();
   try { return await callbackExchange; }
@@ -115,10 +131,10 @@ export async function getSession() {
   const result = await supabase.auth.getSession();
   if (result.error) throw result.error;
   const session = result.data.session;
-  if (!session) { githubToken = null; return null; }
-  if (!githubToken) githubToken = await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
+  if (!session) { githubToken=null;githubUserId=null;return null; }
+  await restoreGitHubToken(session.user.id);
   if (!githubToken && session.user.app_metadata?.provider === 'github' && session.provider_token) {
-    await persistGitHubToken(session.provider_token);
+    await persistGitHubToken(session.provider_token,session.user.id);
   }
   return session;
 }

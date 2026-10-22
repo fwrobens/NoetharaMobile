@@ -26,32 +26,34 @@ let githubToken: string | null = null;
 // Provider tokens are short-lived and never written to our project database.
 export function getGitHubToken() { return githubToken; }
 export function getOAuthReturnUrl() { return ExpoLinking.createURL('auth/callback'); }
-export async function signInWithGitHub() {
+export async function signInWithProvider(provider: 'github' | 'google') {
   const redirectTo = getOAuthReturnUrl();
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'github',
+    provider,
     options: {
-      scopes: 'repo read:user user:email',
+      ...(provider === 'github' ? { scopes: 'repo read:user user:email' } : {}),
       redirectTo,
       skipBrowserRedirect: true,
     },
   });
   if (error) throw error;
-  if (!data?.url) throw Error('GitHub authorization URL is missing.');
+  if (!data?.url) throw Error('The provider did not return an authorization URL.');
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   if (result.type !== 'success') {
-    throw Error('GitHub connection was canceled or could not return to the app. Check the redirect allowlist.');
+    throw Error(provider + ' sign-in was canceled or the redirect could not return to Expo. Check the allowed URLs in Supabase Auth.');
   }
-  const resultUrl = new URL(result.url);
-  const code = resultUrl.searchParams.get('code');
-  if (!code) {
-    throw Error(resultUrl.searchParams.get('error_description') ?? 'No authorization code received.');
-  }
+  const redirect = new URL(result.url);
+  const oauthError = redirect.searchParams.get('error_description');
+  if (oauthError) throw Error(oauthError);
+  const code = redirect.searchParams.get('code');
+  if (!code) throw Error('Missing authorization code. Confirm the Supabase redirect allowlist includes ' + redirectTo);
   const exchanged = await supabase.auth.exchangeCodeForSession(code);
   if (exchanged.error) throw exchanged.error;
-  githubToken = exchanged.data.session?.provider_token ?? null;
+  if (provider === 'github') githubToken = exchanged.data.session?.provider_token ?? null;
   return exchanged.data.session;
 }
+export const signInWithGitHub = () => signInWithProvider('github');
+export const signInWithGoogle = () => signInWithProvider('google');
 export async function getSession() {
   const result = await supabase.auth.getSession();
   if (result.error) throw result.error;
@@ -74,6 +76,21 @@ export async function logout() {
   if (result.error) throw result.error;
 }
 export type ChatEntry = { role: 'user' | 'assistant'; content: string };
+export type AIModel = { id: string; provider: 'beam' | 'nvidia'; name: string };
+export type AIModelsResponse = {
+  providers: { beam: boolean; nvidia: boolean };
+  models: AIModel[];
+  catalogSource: string;
+  notice: string;
+};
+const SELECTED_MODEL_KEY = '@noethara:selected-model';
+export const BEAM_ID = 'Beam-1.0-501B-A23B';
+export async function getPreferredModel(): Promise<string> {
+  return (await AsyncStorage.getItem(SELECTED_MODEL_KEY)) || BEAM_ID;
+}
+export async function savePreferredModel(value: string): Promise<void> {
+  await AsyncStorage.setItem(SELECTED_MODEL_KEY, value);
+}
 export type Repo = { full_name: string; private: boolean; default_branch: string; description: string | null };
 export type GithubEntry = { name: string; path: string; type: string; size?: number };
 
@@ -103,10 +120,13 @@ async function callAPI<T>(path: string, options: {
   return data as T;
 }
 export const noetharaAPI = {
-  status: () => callAPI<{ auth: boolean; beam: boolean; fallback: boolean }>('/status'),
-  chat: (messages: ChatEntry[], context?: { repo: string; path: string; branch: string }) =>
-    callAPI<{ answer: string; model: string; provider: string; usage: unknown }>('/chat', {
-      method: 'POST', payload: { messages, ...(context ? { context } : {}) }, github: Boolean(context),
+  status: () => callAPI<{ auth: boolean; beam: boolean; nvidia: boolean; fallback: boolean }>('/status'),
+  models: () => callAPI<AIModelsResponse>('/models'),
+  chat: (messages: ChatEntry[], context?: { repo: string; path: string; branch: string }, model?: string) =>
+    callAPI<{ answer: string; model: string; provider: string; usage: unknown; fallbackUsed: boolean }>('/chat', {
+      method: 'POST',
+      payload: { messages, ...(context ? { context } : {}), ...(model ? { model } : {}) },
+      github: Boolean(context),
     }),
   repos: () => callAPI<{ repos: Repo[] }>('/github/repos', { github: true }),
   contents: (repo: string, path: string, branch: string) =>

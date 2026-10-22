@@ -20,8 +20,10 @@ import { StatusBar } from 'expo-status-bar';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle, Rect } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { IntegrationsSettings, RepositoryBrowser, type SelectedGitHubFile } from './src/components/NoetharaIntegrations';
+import { ConnectedChat } from './src/components/ConnectedChat';
 
-type Page = 'workspace' | 'terminals' | 'chat' | 'files';
+type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 type ToolKey = 'ESC' | '+' | 'TAB' | 'CTRL' | 'up' | 'down' | 'left' | 'right' | 'mic' | 'hide';
 
@@ -500,7 +502,7 @@ function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boo
           </Tap>
           <View style={{ flex: 1 }} />
           <View style={styles.drawerBottom}>
-            <Tap onPress={() => Alert.alert('Settings', 'This personal Expo UI currently has no cloud credentials configured.')} style={styles.settingsRound}><Icon name="settings" size={24} /></Tap>
+            <Tap onPress={() => onNavigate('settings')} style={styles.settingsRound}><Icon name="settings" size={24} /></Tap>
             <Tap onPress={() => onNavigate('chat')} style={styles.drawerNew}><Icon name="plus" size={24} color="white"/><Text style={styles.drawerNewText}>New</Text></Tap>
           </View>
         </SafeAreaView>
@@ -518,6 +520,7 @@ function RootApp() {
   const [provider, setProvider] = useState('Beam Free');
   const [quality, setQuality] = useState('max');
   const [lastMessage, setLastMessage] = useState('');
+  const [githubFile, setGithubFile] = useState<SelectedGitHubFile | null>(null);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const inputRef = useRef<TextInput>(null);
   const { width: screenWidth } = useWindowDimensions();
@@ -590,8 +593,13 @@ function RootApp() {
             send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
             setProvider={setProvider} quality={quality} setQuality={setQuality} />}
           {page === 'terminals' && <TerminalsPage onBack={() => go('workspace')} />}
-          {page === 'chat' && <ChatPage key={lastMessage} onMenu={openDrawer} latest={lastMessage} />}
-          {page === 'files' && <FilesPage onBack={() => go('workspace')} />}
+          {page === 'chat' && <ConnectedChat key={lastMessage} onMenu={openDrawer}
+            onSettings={() => go('settings')} onFiles={() => go('files')}
+            latest={lastMessage} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
+          {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
+            onChoose={file => { setGithubFile(file); go('chat'); }} />}
+          {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
+            openRepos={() => go('files')} />}
         </SafeAreaView>
       </KeyboardAvoidingView>
       <NavigationDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} onNavigate={go} page={page} />

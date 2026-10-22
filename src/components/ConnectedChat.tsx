@@ -8,6 +8,7 @@ import {
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
+import { readProjectContext, type SelectedProject } from '../lib/githubRepoContext';
 
 const INK='#262429', MUTED='#88858C', PURPLE='#7355C7';
 const Icon = (name:React.ComponentProps<typeof Feather>['name'],size=20,color=INK) =>
@@ -34,11 +35,12 @@ const mdStyle = StyleSheet.create({
 });
 
 export function ConnectedChat({
-  onMenu,onSettings,onFiles,latest,initialModel,attachedFile,onRemoveFile,
+  onMenu,onSettings,onFiles,latest,initialModel,attachedFile,attachedProject,onRemoveFile,onRemoveProject,
   conversationId,onChatSaved,
 }:{
   onMenu:()=>void;onSettings:()=>void;onFiles:()=>void;latest:string;initialModel?:string;
   attachedFile:SelectedGitHubFile|null;onRemoveFile:()=>void;
+  attachedProject:SelectedProject|null;onRemoveProject:()=>void;
   conversationId?:string|null;onChatSaved?:(id:string)=>void;
 }) {
   const [messages,setMessages]=useState<ChatEntry[]>(latest?[{role:'user',content:latest}]:[]);
@@ -71,7 +73,9 @@ export function ConnectedChat({
       if(!session)throw Error('Sign in before sending prompts.');
       const id=await persistChat(null,next);
       setChatId(id);onChatSaved?.(id);
-      const result=await noetharaAPI.chat(next,attachedFile??undefined,initialModel||model);
+      const context=attachedProject?await readProjectContext(attachedProject,first):null;
+      const request=context?[{role:'user' as const,content:context.text},...next]:next;
+      const result=await noetharaAPI.chat(request,attachedFile??undefined,initialModel||model);
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
       await persistChat(id,[answer]);
@@ -88,7 +92,9 @@ export function ConnectedChat({
     try {
       const id=await persistChat(chatId,[{role:'user',content:text}]);
       setChatId(id);onChatSaved?.(id);
-      const result=await noetharaAPI.chat(next.slice(-20),attachedFile??undefined,model);
+      const projectContext=attachedProject?await readProjectContext(attachedProject,text):null;
+      const request=projectContext?[{role:'user' as const,content:projectContext.text},...next.slice(-18)]:next.slice(-20);
+      const result=await noetharaAPI.chat(request,attachedFile??undefined,model);
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages(prev=>[...prev,answer]);
       await persistChat(id,[answer]);
@@ -125,13 +131,18 @@ export function ConnectedChat({
       {!!status&&<Text style={[styles.status,isError&&styles.error]}>{status}</Text>}
     </ScrollView>
     <View style={styles.composerDock}>
+      {attachedProject&&<View style={styles.fileBadge}>
+        {Icon('github',16,PURPLE)}
+        <Text style={styles.fileLabel} numberOfLines={1}>{attachedProject.repo} · project context</Text>
+        <Pressable onPress={onRemoveProject} accessibilityLabel="Remove project context">{Icon('x',17,MUTED)}</Pressable>
+      </View>}
       {attachedFile&&<View style={styles.fileBadge}>
         {Icon('file-text',16,PURPLE)}<Text style={styles.fileLabel} numberOfLines={1}>{attachedFile.repo} / {attachedFile.path}</Text>
         <Pressable onPress={onRemoveFile} accessibilityLabel="Remove file">{Icon('x',17,MUTED)}</Pressable>
       </View>}
       <Pressable onPress={onFiles} style={styles.projectPicker}>
         {Icon('folder',17,MUTED)}
-        <Text style={styles.projectName} numberOfLines={1}>{attachedFile?attachedFile.repo:'Choose GitHub file'}</Text>
+        <Text style={styles.projectName} numberOfLines={1}>{attachedProject?attachedProject.repo:attachedFile?attachedFile.repo:'Choose GitHub project'}</Text>
         {Icon('chevron-down',16,MUTED)}
       </Pressable>
       <LinearGradient colors={['#FFFFFF','#F8F6F2']} style={styles.composer}>

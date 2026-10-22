@@ -1,3 +1,55 @@
+# Existing live EC2: noethara-server (Ohio)
+
+**Use this section for your already-running EC2 instance. Do not deploy the separate CloudFormation stack below.**
+
+- IP: `18.226.87.72`
+- Region: `us-east-2` (Ohio)
+- Instance: `noethara-server` (`t3.large`)
+- SSH user: `ubuntu`
+- SSH key: `my-ai-server-key.pem`, kept on the owner's trusted device/workspace (never put the private key in a GitHub repository).
+
+### Provision your already-running server
+
+From Cosyra or a trusted computer **where the private SSH key already exists**:
+
+```bash
+chmod 600 my-ai-server-key.pem
+ssh -i my-ai-server-key.pem ubuntu@18.226.87.72
+```
+
+Once connected, run on the Ubuntu instance:
+
+```bash
+git clone --branch main https://github.com/fwrobens/NoetharaMobile.git ~/noetharamobile
+bash ~/noetharamobile/infra/aws/provision-live-server.sh
+```
+
+If you previously cloned the repository, replace the clone step with
+`git -C ~/noetharamobile pull --ff-only origin main`. If GitHub denies cloning the private repository, create a **read-only GitHub deploy key** for the VM and clone using `git@github.com:fwrobens/NoetharaMobile.git`. Do not place a GitHub personal access token in command history or in this script.
+
+The script verifies Ubuntu **22.04**, installs Python, Git, Docker/Compose, Node.js **24 LTS**, Nginx, PM2 and tmux, retrieves the project, installs the approved CLI packages, starts a local terminal bridge on `127.0.0.1:8789` and a health endpoint on `127.0.0.1:3000`, and configures an Nginx IP-based reverse proxy on port 80. It does not overwrite SSH settings or create an EC2 instance.
+
+**After installation, verify:**
+
+```bash
+pm2 status
+docker --version
+docker compose version
+node --version
+python3 --version
+nginx -t
+curl -i http://127.0.0.1:3000/health
+```
+
+The private bridge's secret is stored at
+`/home/ubuntu/.config/noethara/terminal.env`, with owner-only permissions. It must not be pasted into chat, GitHub, screenshots, or your landing page.
+
+**Still required before mobile remote-terminal access:** a domain or private authenticated network route, a valid TLS certificate exposing only `wss://` to the iPhone, and successful interactive CLI authentication on the EC2 server. Never expose port 8789 directly to the internet; the app's simple terminal UI also does not yet fully render ANSI interactive TUIs.
+
+`NoetharaMobile` is a **React Native Expo client**, not a web server. PM2 starts the Linux backend bridge and private health service, not the Expo mobile interface.
+
+---
+
 # NoetharaMobile EC2 infrastructure
 
 This folder is **deployment code only**. An EC2 instance has not been launched from this chat.

@@ -23,7 +23,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { IntegrationsSettings, RepositoryBrowser, type SelectedGitHubFile } from './src/components/NoetharaIntegrations';
 import { ConnectedChat } from './src/components/ConnectedChat';
 import { AuthScreen } from './src/components/AuthScreen';
-import { supabase, getSession, getPreferredModel, BEAM_ID } from './src/lib/noetharaBackend';
+import { supabase, getSession, getPreferredModel, savePreferredModel, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
 type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings';
@@ -627,7 +627,7 @@ function RootApp() {
           {page === 'terminals' && <TerminalsPage onBack={() => go('workspace')} />}
           {page === 'chat' && <ConnectedChat key={lastMessage} onMenu={openDrawer}
             onSettings={() => go('settings')} onFiles={() => go('files')}
-            latest={lastMessage} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
+            latest={lastMessage} initialModel={provider} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
           {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
             onChoose={file => { setGithubFile(file); setLastMessage(''); go('chat'); }} />}
           {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
@@ -636,7 +636,7 @@ function RootApp() {
       </KeyboardAvoidingView>
       <NavigationDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} onNavigate={go} page={page} />
       <ModelPicker visible={showHomeModels} onClose={() => setShowHomeModels(false)}
-        selected={provider} onSelect={setProvider} />
+        selected={provider} onSelect={value => { setProvider(value); void savePreferredModel(value); }} />
       </LinearGradient>
     </View>
   );

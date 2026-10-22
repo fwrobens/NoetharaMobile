@@ -1,8 +1,8 @@
 # Noethara Dev — Expo SDK 57
 
-A native, soft-ivory mobile coding workspace. Personal-use UI + live model gateway + GitHub repository reader + local code editor.
+Native soft-ivory coding workspace for Expo Go. Includes authenticated Beam/NVIDIA chat, GitHub repository reader, saved conversations, Markdown replies, a local editor, and a separate remote CLI terminal.
 
-## Start in Cosyra with Expo Go
+## Sync and run in Cosyra
 
 ```bash
 git pull origin main
@@ -12,76 +12,66 @@ npm run typecheck
 npx expo start --clear --tunnel
 ```
 
-If Expo reports a dependency mismatch, run `npx expo install --fix` and restart with `--clear`.
+Restart Expo (not just hot reload) after adding native dependencies.
 
-## Working screens
+## What changed
 
-- **Auth:** GitHub OAuth, Google OAuth, email/password sign-in and registration, plus a clearly labeled guest UI preview.
-- **Playground:** create, edit, save and delete local code snippets. Saved on-device with AsyncStorage; users explicitly consent before sending code to AI.
-- **Model picker:** searchable Beam + NVIDIA models. Signed-in accounts request the backend's current NVIDIA catalog; guest preview has a documented offline sample list (not live verified).
-- **AI chat:** model selection is persisted, user messages travel through Supabase Edge Functions and responses display in chat. Messages can be saved to owner-scoped chat tables.
-- **GitHub:** after OAuth configuration, browse authorized repositories and directories and attach individual text files to chat (read-only).
-- **Settings:** check provider state, choose model and see endpoint URLs.
+- **OAuth recovery:** PKCE callback handling for both browser sessions and Expo deep links; duplicate code-exchange protection. Github OAuth token is stored with Expo SecureStore and scoped to the signed-in Supabase user's ID.
+- **Verify GitHub access:** Settings -> GitHub Integration -> Verify GitHub repository access. Reconnect GitHub once after upgrading if the old short-lived token is missing.
+- **GitHub context:** authenticated chat can read a bounded repository list from the existing Supabase read-only API. It can only inspect source code when you select a repository file. It cannot clone or push a repo.
+- **Chat history:** conversations stored in Supabase with RLS now appear under Recent chats in the sliding drawer. Open an older chat or create a new one.
+- **Message UI:** users appear in small right-aligned bubbles with no "YOU" label; AI messages render inline as Markdown (headings, bold, lists, quotes and code).
+- **Swipe drawer:** finger-tracking drag from the left edge; drag past roughly one-third of the drawer to open, or slide left to close.
+- **CLI separate from chat:** Terminals -> OpenCode / Codex / Claude Code opens a dedicated terminal client. These are not API chat models.
+- **Local Playground:** create, edit and save files on-device, with an opt-in handoff to AI for review.
 
-## Supabase project
+## Secure CLI runtime (optional)
+
+A Linux terminal cannot run inside Expo Go. A separate owner-controlled Linux environment is necessary.
+
+A basic private WebSocket bridge is included under `runtime/`:
+
+```bash
+cd runtime
+npm install
+# Set NOETHARA_TERMINAL_TOKEN to a cryptographically random secret (32+ characters).
+# Optionally set NOETHARA_WORKSPACE to an existing writable directory.
+npm start
+```
+
+It listens on `127.0.0.1:8789` and must be made accessible **only through your authenticated private TLS tunnel** as `wss://...`; do not expose the raw port publicly. Enter the `wss://` URL and runtime token in the app's Terminals settings.
+
+This is an initial CLI input/output bridge, **not yet a production-grade terminal emulator**. Full ANSI screen-mode rendering, persistent sessions on disconnection, and robust PTY resizing require further work. The bridge also requires `script` (util-linux) and the installed `opencode`, `codex` or `claude` CLI binaries. Do not claim those CLIs run until your environment is connected.
+
+## Supabase
 
 Project: `smiubazuuptrknffmouo`
 
-Backend base: `https://smiubazuuptrknffmouo.supabase.co`
+Backend: `https://smiubazuuptrknffmouo.supabase.co/functions/v1/noethara-api`
 
-Edge Function base: `https://smiubazuuptrknffmouo.supabase.co/functions/v1/noethara-api`
-
-Available authenticated routes:
-
-- `GET /status` — returns Boolean flags for Beam and NVIDIA secrets
-- `GET /models` — merges NVIDIA's live hosted chat catalog with documented chat IDs
-- `POST /chat` — selected Beam/NVIDIA model, or NVIDIA fallback if Beam is unavailable
-- `GET /github/repos` — list authorized repositories
-- `GET /github/contents?repo=owner/repo&path=&branch=main` — list directory or read a text file
-
-Secrets read by Edge Functions (already named in this project):
+Configured secret variable names:
 
 ```text
 NOETHARA_BEAMAI_API_KEY
 NVIDIA_API_KEY
 ```
 
-Reflection's endpoint: `https://api.reflection.ai/openai/v1`.
-NVIDIA's hosted chat endpoint: `https://integrate.api.nvidia.com/v1`.
+No Vercel AI Gateway key required.
 
-**No Vercel AI Gateway account or VERCEL_AI_GATEWAY_KEY is needed.** NVIDIA is the optional error/rate-limit fallback for Beam, not an automatic paid model. NVIDIA "Free Endpoint" and API catalog availability vary; listed models aren't guaranteed to be free or enabled for your key.
-
-## GitHub and Google OAuth setup
-
-Register a GitHub OAuth App and configure Google OAuth in Google Cloud.
-
-**Both** GitHub and Google, when authenticated through Supabase, use the Supabase-hosted provider callback:
+GitHub/Google Supabase provider callback:
 
 ```text
 https://smiubazuuptrknffmouo.supabase.co/auth/v1/callback
 ```
 
-Enable **GitHub** and **Google** under Supabase → Authentication → Providers and provide each provider's client ID and secret in the Supabase dashboard (never in the Expo app).
+For Expo Go, also allowlist the dynamic return URL shown in Settings -> GitHub Integration. If Safari returns to localhost, verify the URL was allowlisted, and that the current Cosyra tunnel URL matches. Expo's standard Expo Go OAuth support is limited; for reliable stable redirect schemes, use a development build.
 
-Add the mobile app's return URL to Supabase → Authentication → URL Configuration → Redirect URLs. The app shows the exact Expo Go return URL under Settings → GitHub Integration. It can change when using a new Cosyra tunnel. A standalone/development build can use `noetharadev://auth/callback` for stable deep linking.
+### Server sync note
 
-Email/password sign-up may require email confirmation depending on Auth project settings.
-
-## ChatGPT Plus/Pro
-
-ChatGPT subscriptions are **not** generic OpenAI API credentials. This app is not approved to share a Plus/Pro plan via third-party app authorization; no unofficial login or token harvesting is implemented.
-
-## Landing-page screenshot checklist
-
-Use *actual Expo renders* of:
-1. The new premium ivory auth screen.
-2. Local Playground with the editable TypeScript starter file and saved status.
-3. The AI model picker with Beam and NVIDIA results (note guest catalog is preview-only).
-4. A **successful real** model conversation after sign-in; never present an error/preview response as real AI output.
-5. GitHub repository browser **after GitHub OAuth works**.
-
-**Not implemented:** running a Linux shell, deploying websites, cloning repositories, committing GitHub changes, or a tool-executing code agent. The Terminals UI still uses demo entries. Do not advertise those features as working.
+The client code sends verified GitHub repository metadata to Beam using existing deployed GitHub API routes. A matching enhancement to the Edge Function source is committed to GitHub, but its most recent remote deployment was blocked; **do not assume that server change is active** until it is successfully deployed. The older function's authenticated Beam chat, model list and read-only GitHub routes remain deployed.
 
 ## Verification
 
-`.github/workflows/expo-check.yml` runs dependency and TypeScript checks on commits. Supabase Edge Function deployment and RLS configuration have been confirmed. A full native build, OAuth callback completion and successful Beam/NVIDIA inference still require live testing on the iPhone.
+`.github/workflows/expo-check.yml` runs Expo package validation and TypeScript checking when GitHub Actions is enabled. Confirm its actual result in Actions; a GitHub commit does not prove the native app has been tested.
+
+**Still requires live validation:** iPhone OAuth callback, GitHub token permissions, historical chat loading, Markdown layout, swipe tracking and live terminal connection.

@@ -75,3 +75,18 @@ The client code sends verified GitHub repository metadata to Beam using existing
 `.github/workflows/expo-check.yml` runs Expo package validation and TypeScript checking when GitHub Actions is enabled. Confirm its actual result in Actions; a GitHub commit does not prove the native app has been tested.
 
 **Still requires live validation:** iPhone OAuth callback, GitHub token permissions, historical chat loading, Markdown layout, swipe tracking and live terminal connection.
+
+
+## Latest: project-aware AI and per-agent CLI sessions
+
+In Files → GitHub Repositories, select a repository and tap **Use entire project with AI**. Each question now triggers a bounded code discovery pass (up to 18 folders, eight source files and around 35 KB of excerpts) using your already-authorized read-only GitHub integration. Hidden credentials and binary files are excluded. This is *not* an unlimited full-repo index and does not automatically apply or commit edits. The model should explain which files it used.
+
+The Terminals page launches a separate **OpenCode**, **Codex**, or **Claude Code** screen, rather than switching agents within one terminal tab. The optional Linux bridge now uses separate tmux sessions for reconnection. Full-screen interactive TUI rendering still needs a true terminal emulator.
+
+## AWS EC2 deployment assets
+
+See [infra/aws/README.md](infra/aws/README.md) for the CloudFormation configuration and launch prerequisites. The included scripts target Ubuntu 22.04, t3.large, 50 GB encrypted gp3 EBS, Node 24 LTS, Docker/Compose, Nginx, Git, Python, PM2 and tmux in us-east-1.
+
+The AWS instance is **not automatically provisioned**: this chat has no live AWS EC2 account connector. The `infra/aws/deploy.sh` script must be run in a trusted AWS-authenticated environment. It creates a local SSH key file (never committed to GitHub) and prints the real Elastic IP only if CloudFormation succeeds.
+
+The mobile client cannot itself host CLI processes. The installed OpenCode/Codex/Claude binaries need their own authorized login. Do not expose the raw terminal bridge publicly. HTTPS requires a domain and certificate.

@@ -112,7 +112,7 @@ const styles=StyleSheet.create({
  header:{height:72,paddingHorizontal:18,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
  headerButton:{padding:8},titleRow:{flexDirection:'row',gap:9,alignItems:'center'},
  onlineDot:{width:10,height:10,borderRadius:8,backgroundColor:'#27C565'},
- headerTitle:{fontWeight:'650',color:COLORS.ink,fontSize:20},
+ headerTitle:{fontWeight:'600',color:COLORS.ink,fontSize:20},
  chatContent:{flexGrow:1,padding:18,paddingBottom:34},
  empty:{alignItems:'center',justifyContent:'center',flexGrow:1,paddingHorizontal:21},
  emptyIcon:{height:77,width:77,borderRadius:26,backgroundColor:'#F4F0FA',alignItems:'center',justifyContent:'center',marginBottom:22},

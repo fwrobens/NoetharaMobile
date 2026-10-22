@@ -37,7 +37,7 @@ This editor saves changes to your device.
 This does NOT run terminal commands or push GitHub code.
 ` },
 ];
-export function LocalPlayground({ onBack, onChat }: { onBack:()=>void;onChat:()=>void }) {
+export function LocalPlayground({ onBack, onChat }: { onBack:()=>void;onChat:(fileName:string,content:string)=>void }) {
   const [files,setFiles]=useState<LocalFile[]>(samples);
   const [current,setCurrent]=useState('index.tsx');
   const [code,setCode]=useState(samples[0].content);
@@ -134,7 +134,10 @@ export function LocalPlayground({ onBack, onChat }: { onBack:()=>void;onChat:()=
       </View>
       <View style={styles.actionRow}>
         <Pressable onPress={remove} style={styles.delete}><Feather name="trash-2" size={18} color="#9D6A6A"/></Pressable>
-        <Pressable onPress={onChat} style={styles.chat}><Feather name="message-square" size={17} color="#7355C7"/><Text style={styles.chatText}>Ask AI</Text></Pressable>
+        <Pressable onPress={() => Alert.alert('Send file to AI?', 'This sends the current file content to your selected AI provider. Do not send secrets or private data.', [
+          { text:'Cancel', style:'cancel' },
+          { text:'Continue', onPress:()=>{Keyboard.dismiss();onChat(current,code);}},
+        ])} style={styles.chat}><Feather name="message-square" size={17} color="#7355C7"/><Text style={styles.chatText}>Review with AI</Text></Pressable>
         <Pressable onPress={()=>void save().catch(()=>Alert.alert('Save failed','Could not save to device storage.'))} style={styles.save}>
           <Feather name="save" size={18} color="#FFFFFF"/><Text style={styles.saveText}>{dirty?'Save changes':'Saved'}</Text>
         </Pressable>

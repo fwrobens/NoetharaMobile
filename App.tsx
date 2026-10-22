@@ -26,6 +26,7 @@ import { ConnectedChat } from './src/components/ConnectedChat';
 import { AuthScreen } from './src/components/AuthScreen';
 import { LocalPlayground } from './src/components/LocalPlayground';
 import { RemoteTerminal } from './src/components/RemoteTerminal';
+import type { SelectedProject } from './src/lib/githubRepoContext';
 import { supabase, getSession, getPreferredModel, savePreferredModel, listConversations, recoverPendingOAuthRedirect, handleOAuthRedirect, type ConversationSummary, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
@@ -540,6 +541,7 @@ function RootApp() {
   const [quality,setQuality]=useState('max');
   const [lastMessage,setLastMessage]=useState('');
   const [githubFile,setGithubFile]=useState<SelectedGitHubFile|null>(null);
+  const [githubProject,setGithubProject]=useState<SelectedProject|null>(null);
   const [selection,setSelection]=useState({start:0,end:0});
   const [chats,setChats]=useState<ConversationSummary[]>([]);
   const [activeChatId,setActiveChatId]=useState<string|null>(null);
@@ -684,9 +686,11 @@ function RootApp() {
               onSettings={()=>go('settings')} onFiles={()=>go('files')}
               latest={lastMessage} conversationId={activeChatId}
               onChatSaved={id=>{setActiveChatId(id);refreshChats();}}
-              initialModel={provider} attachedFile={githubFile} onRemoveFile={()=>setGithubFile(null)}/>}
+              initialModel={provider} attachedFile={githubFile} attachedProject={githubProject}
+              onRemoveFile={()=>setGithubFile(null)} onRemoveProject={()=>setGithubProject(null)}/>}
             {page==='files'&&<RepositoryBrowser onBack={()=>go('workspace')}
-              onChoose={file=>{setGithubFile(file);newChat();}}/>}
+              onChoose={file=>{setGithubFile(file);setGithubProject({repo:file.repo,branch:file.branch});newChat();}}
+              onChooseRepo={project=>{setGithubFile(null);setGithubProject(project);newChat();}}/>}
             {page==='playground'&&<LocalPlayground onBack={()=>go('workspace')} onChat={(fileName,content)=>{
               if(!signedIn){Alert.alert('Sign in required','Sign in before sending code to a model.');go('settings');return;}
               setActiveChatId(null);

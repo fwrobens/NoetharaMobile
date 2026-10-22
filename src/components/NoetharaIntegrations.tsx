@@ -3,10 +3,11 @@ import { ActivityIndicator, Alert, Keyboard, Linking, Pressable, ScrollView, Sty
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  supabase, getSession, signInWithGitHub, signInWithEmail, signUpWithEmail,
+  supabase, getSession, signInWithGitHub, signInWithGoogle, signInWithEmail, signUpWithEmail,
   logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI, getGitHubToken,
   type Repo, type GithubEntry,
 } from '../lib/noetharaBackend';
+import { ModelPicker, useModelPreference } from './ModelPicker';
 
 const colors = { text:'#252529',muted:'#77777E',purple:'#7255CB',line:'#E9E7E3',soft:'#F6F3EF',green:'#25B55B' };
 const icon = (name: React.ComponentProps<typeof Feather>['name'], size=19, color=colors.text) => <Feather name={name} size={size} color={color}/>;
@@ -42,12 +43,14 @@ function Input({ value, onChange, placeholder, secure=false }: { value:string;on
 export type SelectedGitHubFile = { repo:string; branch:string; path:string };
 export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;openRepos:()=>void }) {
   const [section,setSection]=useState<'home'|'providers'|'github'|'account'>('home');
+  const { model, setModel } = useModelPreference();
+  const [pickerVisible,setPickerVisible] = useState(false);
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
   const [signedIn,setSignedIn]=useState(false);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
-  const [status,setStatus]=useState<{beam:boolean;fallback:boolean}|null>(null);
+  const [status,setStatus]=useState<{beam:boolean;nvidia:boolean;fallback:boolean}|null>(null);
   useEffect(()=>{getSession().then(s=>setSignedIn(Boolean(s))).catch(()=>{});},[]);
   useEffect(()=>{if(signedIn)noetharaAPI.status().then(setStatus).catch(()=>setStatus(null));},[signedIn,section]);
   async function run(action:()=>Promise<unknown>) {
@@ -72,7 +75,7 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
               iconName="user" onPress={()=>setSection('account')} />
           </Section>
           <Section label="Development">
-            <Item title="LLM Providers" subtitle="Beam AI · Reflection free API" iconName="cpu" trailing={status?.beam?'Ready':'Setup'} onPress={()=>setSection('providers')} />
+            <Item title="LLM Providers" subtitle="Beam AI · NVIDIA NIM free development endpoints" iconName="cpu" trailing={status?.beam||status?.nvidia?'Ready':'Setup'} onPress={()=>setSection('providers')} />
             <Item title="GitHub Integration" subtitle="OAuth · browse private repositories" iconName="github"
               trailing={getGitHubToken()?'Connected':''} onPress={()=>setSection('github')}/>
             <Item title="Repository files" subtitle="Choose source files for AI context" iconName="folder" onPress={openRepos}/>
@@ -97,26 +100,39 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
             </View>
           </Section>
           <Section label="GitHub OAuth">
-            <View style={styles.fieldWrap}><Action title="Continue with GitHub" dark disabled={loading} onPress={()=>run(signInWithGitHub)}/></View>
+            <View style={styles.fieldWrap}>
+              <Action title="Continue with GitHub" dark disabled={loading} onPress={()=>run(signInWithGitHub)}/>
+              <Action title="Continue with Google" disabled={loading} onPress={()=>run(signInWithGoogle)}/>
+            </View>
           </Section>
         </> : section==='providers' ? <>
-          <Note>Beam is the working provider path. ChatGPT Plus/Pro sharing only works for eligible authorized apps, so this project cannot simply use a subscription as an OpenAI API key.</Note>
-          <Section label="Current provider">
-            <Item title="Beam by Reflection" subtitle="Model Beam-1.0-501B-A23B" iconName="zap" trailing={status?.beam?'Key ready':'No key'} onPress={()=>{}}/>
-            <Item title="Fallback: Vercel Beam Free" subtitle="Only if a Vercel gateway key is configured" iconName="repeat" trailing={status?.fallback?'Ready':'Off'} onPress={()=>{}}/>
-            <Item title="ChatGPT Plus / Pro" subtitle="Subscription sharing not configured for this app" iconName="message-circle" trailing="Pending" onPress={()=>Alert.alert('ChatGPT plan','An eligible approved Sign in with ChatGPT integration is required. ChatGPT subscriptions are not generic API keys.')}/>
+          <Note>Beam uses your existing NOETHARA_BEAMAI_API_KEY. NVIDIA uses NVIDIA_API_KEY. Both are read only by the Supabase backend; there are no API keys stored in Expo.</Note>
+          <Section label="Available providers">
+            <Item title="Beam AI" subtitle="Reflection · Beam-1.0-501B-A23B" iconName="zap"
+              trailing={status?.beam?'Configured':'Check setup'} onPress={()=>setPickerVisible(true)}/>
+            <Item title="NVIDIA NIM" subtitle="Browse supported hosted chat models" iconName="cpu"
+              trailing={status?.nvidia?'Configured':'Check setup'} onPress={()=>setPickerVisible(true)}/>
+            <Item title="Selected model" subtitle={model} iconName="check-circle"
+              trailing="Change" onPress={()=>setPickerVisible(true)}/>
+            <Item title="ChatGPT Plus/Pro" subtitle="Requires an approved subscription-sharing integration"
+              iconName="message-circle" trailing="Unavailable"
+              onPress={()=>Alert.alert('ChatGPT','A regular ChatGPT plan is not an OpenAI API key. This app is not approved for plan sharing.')}/>
           </Section>
-          <Section label="Server configuration"><View style={styles.fieldWrap}>
-            <Text style={styles.fieldText}>Set REFLECTION_API_KEY in Supabase → Edge Function Secrets. You may alternatively set VERCEL_AI_GATEWAY_KEY for free-tier Beam requests. Do not paste keys into this app.</Text>
-            <Action title="Refresh connection status" onPress={()=>run(async()=>setStatus(await noetharaAPI.status()))} disabled={loading}/>
-          </View></Section>
-          <Section label="Connection URLs"><View style={styles.fieldWrap}>
-            <Text style={styles.caption}>YOUR PRIVATE BACKEND GATEWAY</Text>
-            <Text selectable style={styles.url}>https://smiubazuuptrknffmouo.supabase.co/functions/v1/noethara-api/chat</Text>
-            <Text style={styles.caption}>PRIMARY BEAM API (SERVER ONLY)</Text>
+          <Section label="Model catalog">
+            <View style={styles.fieldWrap}>
+              <Text style={styles.fieldText}>NVIDIA publishes chat models from NVIDIA, DeepSeek, Qwen, Meta and other publishers. The live model list is retrieved through your key. Free access and rate limits vary by model and account.</Text>
+              <Action title="Browse & select AI model" dark onPress={()=>setPickerVisible(true)} />
+              <Action title="Refresh provider status" onPress={()=>run(async()=>setStatus(await noetharaAPI.status()))} disabled={loading}/>
+              <Text style={styles.fieldText}>If Beam is rate-limited or unavailable, the backend may try a configured NVIDIA development model. No Vercel AI Gateway key is needed.</Text>
+            </View>
+          </Section>
+          <Section label="Server API endpoints"><View style={styles.fieldWrap}>
+            <Text style={styles.caption}>APP GATEWAY</Text>
+            <Text selectable style={styles.url}>https://smiubazuuptrknffmouo.supabase.co/functions/v1/noethara-api</Text>
+            <Text style={styles.caption}>BEAM (SERVER-SIDE)</Text>
             <Text selectable style={styles.url}>https://api.reflection.ai/openai/v1</Text>
-            <Text style={styles.caption}>OPTIONAL FREE-MODEL FALLBACK (SERVER ONLY)</Text>
-            <Text selectable style={styles.url}>https://ai-gateway.vercel.sh/v1</Text>
+            <Text style={styles.caption}>NVIDIA (SERVER-SIDE)</Text>
+            <Text selectable style={styles.url}>https://integrate.api.nvidia.com/v1</Text>
           </View></Section>
         </> : <>
           <Note>Your GitHub OAuth callback is the fixed Supabase URL below. The second redirect returns to your running Expo app.</Note>
@@ -136,6 +152,7 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
         {loading&&<ActivityIndicator color={colors.purple} style={{marginTop:6}}/>}
         {!!message&&<Note>{message}</Note>}
       </ScrollView>
+      <ModelPicker visible={pickerVisible} onClose={()=>setPickerVisible(false)} selected={model} onSelect={setModel}/>
     </View>
   );
 }

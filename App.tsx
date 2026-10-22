@@ -23,10 +23,11 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { IntegrationsSettings, RepositoryBrowser, type SelectedGitHubFile } from './src/components/NoetharaIntegrations';
 import { ConnectedChat } from './src/components/ConnectedChat';
 import { AuthScreen } from './src/components/AuthScreen';
+import { LocalPlayground } from './src/components/LocalPlayground';
 import { supabase, getSession, getPreferredModel, savePreferredModel, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
-type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings';
+type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 type ToolKey = 'ESC' | '+' | 'TAB' | 'CTRL' | 'up' | 'down' | 'left' | 'right' | 'mic' | 'hide';
 
@@ -494,6 +495,7 @@ function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boo
               { label: 'Terminals', icon: 'terminal' as FeatherName, page: 'terminals' as Page },
               { label: 'Code', icon: 'message-circle' as FeatherName, page: 'chat' as Page },
               { label: 'Files', icon: 'folder' as FeatherName, page: 'files' as Page },
+              { label: 'Playground', icon: 'code' as FeatherName, page: 'playground' as Page },
             ]).map(item => <Tap key={item.page} onPress={() => onNavigate(item.page)}
               style={[styles.drawerNavItem, page === item.page && styles.drawerSelected]}>
                 <Icon name={item.icon} size={24} /><Text style={styles.drawerNavText}>{item.label}</Text>
@@ -630,6 +632,7 @@ function RootApp() {
             latest={lastMessage} initialModel={provider} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
           {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
             onChoose={file => { setGithubFile(file); setLastMessage(''); go('chat'); }} />}
+          {page === 'playground' && <LocalPlayground onBack={() => go('workspace')} onChat={() => go('chat')}/>}
           {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
             openRepos={() => go('files')} />}
         </SafeAreaView>

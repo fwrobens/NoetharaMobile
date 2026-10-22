@@ -1,44 +1,38 @@
-# Noethara Dev — Expo SDK 57
+# Noethara Dev (Expo SDK 57)
 
-Native React Native recreation of the approved soft-ivory OpenCode-inspired UI, intended for personal testing in Expo Go on iPhone.
+Personal native coding companion with a soft-ivory design and Supabase backend.
 
-## Compatibility
-
-- **Expo SDK 57** (matches Expo Go that reports SDK 57.0.0)
-- React Native 0.86.3 and React 19.2.3
-- Node.js 22.13 or later is recommended for Expo SDK 57.
-- No development build is required for the current interface.
-
-## Run in Cosyra (fresh install after upgrading from SDK 54)
-
-Open the latest version of this repository and run:
+## Run in Expo Go
 
 ```bash
 git pull origin main
-rm -rf node_modules package-lock.json .expo
 npm install
 npx expo install --check
+npm run typecheck
 npx expo start --clear --tunnel
 ```
 
-If Cosyra automatically syncs the repo instead of using Git, skip `git pull`. If the --tunnel option is unavailable, start with `npx expo start --clear` and use the address Cosyra exposes.
+## Features and state
 
-Open the newly generated Expo Go link (not an old link cached from SDK 54).
+- Native workspace, animations, keyboard shortcuts and drawer.
+- Account screen with email authentication and a GitHub OAuth button.
+- Beam AI chat through an authenticated Supabase Edge Function.
+- Optional free Beam fallback through Vercel AI Gateway.
+- Read-only GitHub repository and file browser, with AI file context.
+- Owner-scoped Supabase tables for conversations and repository selections.
+- GitHub Actions workflow for SDK compatibility and typechecking.
 
-You can run `npm run typecheck` and `npm run check` to validate your local setup.
+## Required configuration
 
-## Interface features
+- Supabase project: `smiubazuuptrknffmouo`
+- Add a Reflection API key as `REFLECTION_API_KEY` in **Supabase Edge Function Secrets**. Until this is set, Beam can't answer.
+- For optional fallback set `VERCEL_AI_GATEWAY_KEY` in Supabase Secrets.
+- Register a GitHub OAuth App with callback `https://smiubazuuptrknffmouo.supabase.co/auth/v1/callback`.
+- Enable GitHub in Supabase Auth providers and enter GitHub OAuth app credentials there.
+- Allowlist the Expo return URL shown in the app under **Settings > GitHub Integration**. Expo Go tunnel URLs can change between runs.
 
-- Soft ivory backgrounds, subtle gradient panels, hairline borders and shadows
-- Animated orbital graphic and floating terminal icon
-- Two-tone pixel OpenCode wordmark
-- Multiline prompt, iPhone keyboard and coding shortcut toolbar
-- Animated navigation drawer
-- Terminals, Code and Files pages
-- UI state transitions and native safe-area handling
+## Provider and development limitations
 
-## Implementation status
+ChatGPT subscriptions are not generic API keys. Subscription sharing requires a participating app; Noethara Dev is not yet approved for it. GitHub browse is read-only and does not clone or execute a project. A separate secure Linux worker will be required to run git, edit repositories, and execute coding-agent tools.
 
-**Interface preview only.** No AI service or shell execution backend is connected. The status dot is the demo UI status, not proof of a remote server connection.
-
-The UI was written in React Native + TypeScript, using react-native-svg, React Native Animated, expo-linear-gradient and Expo vector icons. The SDK 57 dependency versions have been aligned with Expo's SDK compatibility matrix.
+No live chat response has been tested because provider credentials have not yet been installed. See the repository's Actions tab for compilation results.

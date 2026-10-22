@@ -5,6 +5,7 @@ import {
   Easing,
   Keyboard,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -16,7 +17,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle, Rect } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
@@ -64,15 +65,15 @@ function Tap({ onPress, children, style, accessibilityLabel }: { onPress: () => 
 }
 
 const GLYPHS: Record<string, string[]> = {
-  o: ['11111', '10001', '10001', '10001', '10001', '10001', '11111'],
-  p: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
-  e: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
-  n: ['11110', '10001', '10001', '10001', '10001', '10001', '10001'],
-  c: ['11111', '10000', '10000', '10000', '10000', '10000', '11111'],
-  d: ['00001', '00001', '11111', '10001', '10001', '10001', '11111'],
+  o: ['00000', '01110', '01010', '01010', '01010', '01110', '00000'],
+  p: ['00000', '01110', '01010', '01110', '01000', '01000', '01000'],
+  e: ['00000', '01110', '01010', '01110', '01000', '01110', '00000'],
+  n: ['00000', '01100', '01010', '01010', '01010', '01010', '00000'],
+  c: ['00000', '01110', '01000', '01000', '01000', '01110', '00000'],
+  d: ['00010', '00010', '01110', '01010', '01010', '01110', '00000'],
 };
+
 function OpenCodeWordmark({ width }: { width: number }) {
-  const glyphWidth = 5;
   const step = 6;
   const letters = 'opencode'.split('');
   const virtualWidth = letters.length * step - 1;
@@ -80,7 +81,7 @@ function OpenCodeWordmark({ width }: { width: number }) {
     GLYPHS[letter].flatMap((row, y) =>
       row.split('').flatMap((digit, x) => digit === '1'
         ? [<Rect key={String(i) + '-' + String(y) + '-' + String(x)} x={i * step + x} y={y}
-             width={1.02} height={1.02} fill={i < 4 ? '#919192' : '#1C1C1E'} />]
+             width={1.045} height={1.045} fill={i < 4 ? (i % 2 === 0 ? '#909092' : '#A3A1A0') : '#202022'} />]
         : [])));
   return (
     <Svg accessible accessibilityLabel="Two-tone OpenCode logo" width={width} height={width * 7 / virtualWidth}
@@ -154,7 +155,7 @@ function Header({ title, onMenu, isChat = false }: { title: string; onMenu: () =
 function TipCard() {
   return (
     <SoftPanel style={styles.tipPanel}>
-      <View style={styles.tipIcon}><Icon name="sun" size={20} color="#333331" /></View>
+      <View style={styles.tipIcon}><MaterialCommunityIcons name="lightbulb-outline" size={23} color="#383633" /></View>
       <Text style={styles.tipText}>
         <Text style={{ color: COLORS.amber }}>Tip  </Text>
         Run <Text style={{ color: '#252628' }}>/connect</Text> to add an AI provider and start coding
@@ -241,7 +242,8 @@ function Composer({
           </Tap>
         )}
       </View>
-      <View style={styles.composerTools}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
+        style={styles.composerTools} contentContainerStyle={styles.composerToolsContent}>
         <Tap style={styles.option} onPress={() => choose('Agent mode', ['Build', 'Plan'], setMode)}>
           <Icon name="hexagon" color={COLORS.violet} size={18} />
           <Text style={[styles.optionText, { color: COLORS.violet }]}>{mode}</Text><Icon name="chevron-down" color={COLORS.violet} size={13} />
@@ -258,7 +260,7 @@ function Composer({
         <Tap style={styles.option} onPress={() => choose('Reasoning effort', ['max', 'normal', 'min'], setQuality)}>
           <Text style={[styles.optionText, { color: COLORS.amber }]}>{quality}</Text><Icon name="chevron-down" color={COLORS.amber} size={13} />
         </Tap>
-      </View>
+      </ScrollView>
     </SoftPanel>
   );
 }
@@ -275,40 +277,45 @@ function Workspace({
   quality: string; setQuality: (v: string) => void;
 }) {
   const { width, height } = useWindowDimensions();
-  const small = height < 740;
+  const small = height < 750;
+  // Content scrolls when the phone is short; the footer remains in a separate
+  // layout row. This prevents the tip from overlapping the terminal status.
+  const heroHeight = Math.min(315, Math.max(small ? 192 : 230, height * (small ? 0.305 : 0.365)));
   return (
     <View style={styles.fill}>
       <Header title="Noethara Dev" onMenu={openMenu} />
       <View style={[styles.workspaceBody, { width: Math.min(width, 520) }]}>
-        {!keyboardVisible && (
-          <View style={[styles.hero, small && { minHeight: 210 }]}>
-            <OrbitalHero size={Math.min(width * (small ? 0.49 : 0.57), 235)} />
-            <View style={styles.wordmark}>
-              <OpenCodeWordmark width={Math.min(width - 66, 344)} />
+        <ScrollView
+          style={styles.fill}
+          contentContainerStyle={[styles.workspaceScrollContent, keyboardVisible && styles.workspaceScrollFocused]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none">
+          {!keyboardVisible && (
+            <View style={[styles.hero, { height: heroHeight }]}>
+              <OrbitalHero size={Math.min(width * (small ? 0.48 : 0.53), 207)} />
+              <View style={styles.wordmark}>
+                <OpenCodeWordmark width={Math.min(width - 68, 341)} />
+              </View>
             </View>
+          )}
+          <View style={keyboardVisible ? styles.focusedComposerWrap : styles.composerWrap}>
+            <Composer prompt={prompt} setPrompt={setPrompt} inputRef={inputRef}
+              selection={selection} setSelection={setSelection}
+              onFocus={() => setKeyboardVisible(true)} onBlur={() => setKeyboardVisible(false)}
+              onSend={send} isFocused={keyboardVisible}
+              mode={mode} setMode={setMode} provider={provider} setProvider={setProvider}
+              quality={quality} setQuality={setQuality} />
+            <HintRow />
           </View>
-        )}
-        <View style={keyboardVisible ? styles.focusedComposerWrap : styles.composerWrap}>
-          <Composer prompt={prompt} setPrompt={setPrompt} inputRef={inputRef}
-            selection={selection} setSelection={setSelection}
-            onFocus={() => setKeyboardVisible(true)} onBlur={() => setKeyboardVisible(false)}
-            onSend={send} isFocused={keyboardVisible}
-            mode={mode} setMode={setMode} provider={provider} setProvider={setProvider}
-            quality={quality} setQuality={setQuality} />
-          <HintRow />
+          <View style={styles.workspaceSpacer} />
+          <View style={[styles.tipWrap, keyboardVisible && styles.tipFocused]}>
+            <TipCard />
+          </View>
+        </ScrollView>
+        <View style={styles.workspaceDock}>
+          {keyboardVisible ? <EditorToolbar onKey={onTool} /> : <TerminalFooter />}
         </View>
-        <View style={[styles.tipWrap, keyboardVisible && styles.tipFocused, small && !keyboardVisible && { marginTop: 30 }]}>
-          <TipCard />
-        </View>
-        {keyboardVisible ? (
-          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-            <EditorToolbar onKey={onTool} />
-          </View>
-        ) : (
-          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-            <TerminalFooter />
-          </View>
-        )}
       </View>
     </View>
   );
@@ -347,14 +354,15 @@ function TerminalsPage({ onBack }: { onBack: () => void }) {
             <Icon name="plus" size={23} color={COLORS.mutedDark} />
           </Tap>
         </View>
-        <View style={{ flexDirection: 'row', gap: 9 }}>
-          {shortcuts.map(s => <Tap key={s.label} onPress={() => Alert.alert(s.label, 'Shortcut preview only — provider is not connected.')} style={{ flex: 1 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ gap: 11, paddingVertical: 5, paddingRight: 6 }}>
+          {shortcuts.map(s => <Tap key={s.label} onPress={() => Alert.alert(s.label, 'Shortcut preview only — provider is not connected.')}>
             <SoftPanel style={styles.agentCard}>
               <View style={[styles.agentIcon, { backgroundColor: s.bg }]}><Icon name={s.icon} size={26} color={s.color} /></View>
-              <View style={styles.agentCardBottom}><Text numberOfLines={1} style={styles.agentText}>{s.label}</Text><Icon name="chevron-right" size={14} color={COLORS.mutedDark} /></View>
+              <View style={styles.agentCardBottom}><Text style={styles.agentText}>{s.label}</Text><Icon name="chevron-right" size={14} color={COLORS.mutedDark} /></View>
             </SoftPanel>
           </Tap>)}
-        </View>
+        </ScrollView>
         <View style={[styles.sectionHeading, { marginTop: 34 }]}>
           <Text style={styles.sectionTitle}>Projects</Text>
           <Text style={styles.sectionNote}>UI examples</Text>
@@ -454,9 +462,13 @@ function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boo
   const backdrop = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(slide, { toValue: visible ? 0 : -400, duration: visible ? 360 : 260,
-        easing: visible ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(backdrop, { toValue: visible ? 1 : 0, duration: 260, useNativeDriver: true }),
+      Animated.spring(slide, {
+        toValue: visible ? 0 : -400,
+        speed: visible ? 19 : 22,
+        bounciness: visible ? 3 : 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdrop, { toValue: visible ? 1 : 0, duration: 255, useNativeDriver: true }),
     ]).start();
   }, [visible, slide, backdrop]);
   return (
@@ -504,6 +516,28 @@ function RootApp() {
   const [lastMessage, setLastMessage] = useState('');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const inputRef = useRef<TextInput>(null);
+  const { width: screenWidth } = useWindowDimensions();
+  const gestures = React.useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_evt, g) => {
+      const horizontal = Math.abs(g.dx) > 15 && Math.abs(g.dx) > Math.abs(g.dy) * 1.35;
+      if (!horizontal) return false;
+      if (drawerVisible) return g.dx < -15 && g.x0 < Math.min(screenWidth * 0.79, 338);
+      return !keyboardVisible && g.dx > 15 && g.x0 <= 35;
+    },
+    onPanResponderRelease: (_evt, g) => {
+      if (drawerVisible) {
+        if (g.dx < -62 || g.vx < -0.5) setDrawerVisible(false);
+      } else if (!keyboardVisible && (g.dx > 62 || g.vx > 0.5)) {
+        Keyboard.dismiss();
+        setDrawerVisible(true);
+      }
+    },
+    onPanResponderTerminationRequest: () => true,
+  }), [drawerVisible, keyboardVisible, screenWidth]);
+  const openDrawer = () => {
+    Keyboard.dismiss();
+    setDrawerVisible(true);
+  };
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
@@ -541,22 +575,24 @@ function RootApp() {
     inputRef.current?.focus();
   };
   return (
-    <LinearGradient colors={['#FCFAF7', '#FBF9F6', '#F7F5F2']} style={styles.fill}>
+    <View style={styles.fill} {...gestures.panHandlers}>
+      <LinearGradient colors={['#FCFAF7', '#FBF9F6', '#F7F5F2']} style={styles.fill}>
       <StatusBar style="dark" />
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <SafeAreaView style={styles.fill} edges={['top', 'bottom']}>
-          {page === 'workspace' && <Workspace openMenu={() => setDrawerVisible(true)} prompt={prompt} setPrompt={setPrompt}
+          {page === 'workspace' && <Workspace openMenu={openDrawer} prompt={prompt} setPrompt={setPrompt}
             inputRef={inputRef} selection={selection} setSelection={setSelection}
             keyboardVisible={keyboardVisible} setKeyboardVisible={setKeyboardVisible}
             send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
             setProvider={setProvider} quality={quality} setQuality={setQuality} />}
           {page === 'terminals' && <TerminalsPage onBack={() => go('workspace')} />}
-          {page === 'chat' && <ChatPage key={lastMessage} onMenu={() => setDrawerVisible(true)} latest={lastMessage} />}
+          {page === 'chat' && <ChatPage key={lastMessage} onMenu={openDrawer} latest={lastMessage} />}
           {page === 'files' && <FilesPage onBack={() => go('workspace')} />}
         </SafeAreaView>
       </KeyboardAvoidingView>
       <NavigationDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} onNavigate={go} page={page} />
-    </LinearGradient>
+      </LinearGradient>
+    </View>
   );
 }
 export default function App() {
@@ -568,8 +604,8 @@ const styles = StyleSheet.create({
   softPanel: {
     overflow: 'hidden', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.92)',
     backgroundColor: '#FFFFFF',
-    shadowColor: COLORS.shadow, shadowOpacity: 0.095, shadowOffset: { width: 0, height: 9 }, shadowRadius: 24,
-    elevation: 3,
+    shadowColor: COLORS.shadow, shadowOpacity: 0.135, shadowOffset: { width: 0, height: 12 }, shadowRadius: 27,
+    elevation: 4,
   },
   header: { height: 74, marginTop: 3, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
   headerIcon: { width: 36, height: 42, justifyContent: 'center' },
@@ -579,36 +615,41 @@ const styles = StyleSheet.create({
   headerMore: { marginLeft: 'auto', width: 32, alignItems: 'center', justifyContent: 'center' },
   chatHeader: { fontSize: 19, fontWeight: '600', color: COLORS.ink, position: 'absolute', left: 0, right: 0, textAlign: 'center', zIndex: -1 },
   workspaceBody: { flex: 1, alignSelf: 'center', paddingHorizontal: 20 },
-  hero: { flexGrow: 1, flexShrink: 1, minHeight: 252, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 27 },
+  workspaceScrollContent: { flexGrow: 1, paddingBottom: 18 },
+  workspaceScrollFocused: { paddingTop: 4, paddingBottom: 14 },
+  workspaceSpacer: { flexGrow: 1, minHeight: 20 },
+  workspaceDock: { flexShrink: 0, backgroundColor: 'transparent', paddingTop: 6, paddingBottom: 3 },
+  hero: { alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 24 },
   wordmark: { marginTop: 13, alignItems: 'center' },
   orbDot: { position: 'absolute', width: 15, height: 15, borderRadius: 16, borderWidth: 3, borderColor: '#FBFAF7' },
   terminalTile: {
     width: 75, height: 75, borderRadius: 25, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.98)',
-    shadowColor: '#A5A09A', shadowOffset: { width: 0, height: 17 }, shadowOpacity: 0.18, shadowRadius: 22, elevation: 6,
+    shadowColor: '#99928D', shadowOffset: { width: 0, height: 19 }, shadowOpacity: 0.24, shadowRadius: 26, elevation: 7,
   },
   composerWrap: { marginTop: 8 },
   focusedComposerWrap: { marginTop: 9 },
-  composerPanel: { paddingLeft: 20, paddingRight: 15, minHeight: 124, paddingBottom: 14, paddingTop: 15 },
+  composerPanel: { paddingLeft: 20, paddingRight: 15, minHeight: 126, paddingBottom: 13, paddingTop: 15 },
   composerFocused: { minHeight: 150, shadowOpacity: 0.13 },
   composerAccent: { position: 'absolute', left: 10, top: 9, bottom: 9, width: 2, borderRadius: 2 },
   composerInputArea: { flexDirection: 'row', alignItems: 'center', minHeight: 62 },
   composerInput: { flex: 1, paddingVertical: 4, paddingHorizontal: 1, fontFamily: MONO, fontSize: 16, lineHeight: 24, color: '#313237', minHeight: 54, maxHeight: 104, textAlignVertical: 'top' },
   sendBubble: { width: 39, height: 39, borderRadius: 28, marginLeft: 8, backgroundColor: '#C3ACEF', alignItems: 'center', justifyContent: 'center' },
-  composerTools: { flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', gap: 4, marginTop: 8 },
-  option: { flexDirection: 'row', gap: 4, alignItems: 'center', paddingVertical: 5 },
-  optionText: { fontFamily: MONO, fontSize: 11.5, color: '#27282A' },
+  composerTools: { marginTop: 8, flexGrow: 0 },
+  composerToolsContent: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingRight: 12 },
+  option: { flexDirection: 'row', gap: 5, alignItems: 'center', paddingVertical: 6 },
+  optionText: { fontFamily: MONO, fontSize: 12.5, color: '#27282A' },
   optionDivider: { color: '#A7A5A5', fontFamily: MONO, fontSize: 15, marginHorizontal: 1 },
   hintRow: { flexDirection: 'row', alignSelf: 'center', gap: 15, alignItems: 'center', marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' },
   hint: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   hintKey: { fontFamily: MONO, fontSize: 12, color: '#252627', backgroundColor: '#F7F6F4', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderColor: '#E8E5E1', borderWidth: 1, borderRadius: 7 },
   hintText: { color: COLORS.muted, fontFamily: MONO, fontSize: 12 },
-  tipWrap: { marginTop: 48 },
-  tipFocused: { marginTop: 49 },
-  tipPanel: { paddingVertical: 16, paddingHorizontal: 14, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FCF6ED' },
-  tipIcon: { width: 33, height: 33, borderRadius: 22, backgroundColor: '#F9DCB1', alignItems: 'center', justifyContent: 'center' },
-  tipText: { fontFamily: MONO, fontSize: 12.5, lineHeight: 20, flexShrink: 1, color: COLORS.mutedDark },
-  terminalFooter: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D8D5D0', height: 46, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tipWrap: { marginTop: 14, flexShrink: 0 },
+  tipFocused: { marginTop: 20 },
+  tipPanel: { paddingVertical: 16, paddingHorizontal: 14, minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FCF6ED' },
+  tipIcon: { width: 37, height: 37, borderRadius: 22, backgroundColor: '#F9DCB1', alignItems: 'center', justifyContent: 'center' },
+  tipText: { fontFamily: MONO, fontSize: 13.2, lineHeight: 20, flexShrink: 1, color: COLORS.mutedDark },
+  terminalFooter: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D8D5D0', height: 48, flexDirection: 'row', alignItems: 'center', gap: 10 },
   footerMuted: { fontFamily: MONO, color: COLORS.muted, fontSize: 12.5 },
   footerStrong: { fontFamily: MONO, color: COLORS.ink, fontSize: 12.5 },
   footerGreen: { height: 11, width: 11, borderWidth: 1.4, borderRadius: 12, borderColor: '#2EBC63', justifyContent: 'center', alignItems: 'center' },
@@ -638,10 +679,10 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 15 },
   sectionTitle: { fontSize: 18, fontWeight: '600', color: COLORS.ink },
   sectionNote: { fontSize: 13, color: COLORS.mutedDark },
-  agentCard: { height: 113, padding: 11, justifyContent: 'space-between', borderRadius: 17 },
+  agentCard: { width: 146, height: 116, padding: 13, justifyContent: 'space-between', borderRadius: 17 },
   agentIcon: { width: 40, height: 40, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
   agentCardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  agentText: { color: COLORS.ink, fontWeight: '600', fontSize: 12.5, flexShrink: 1 },
+  agentText: { color: COLORS.ink, fontWeight: '600', fontSize: 14, flexShrink: 1 },
   featureProject: { minHeight: 139, padding: 15, gap: 14, flexDirection: 'row', alignItems: 'center' },
   projectIcon: { height: 46, width: 46, borderRadius: 14, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
   projectName: { fontSize: 16, fontWeight: '600', color: COLORS.ink },

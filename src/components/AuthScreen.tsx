@@ -44,7 +44,7 @@ export function AuthScreen({ onGuest }: { onGuest: () => void }) {
           <Text style={styles.subline}>Your personal AI coding workspace, designed for the palm of your hand.</Text>
           <View style={styles.tagRow}>
             <View style={styles.tag}><Feather name="cpu" size={13} color="#74639B"/><Text style={styles.tagText}>Beam + NVIDIA</Text></View>
-            <View style={styles.tag}><Feather name="github" size={13} color="#74639B"/><Text style={styles.tagText}>GitHub connected</Text></View>
+            <View style={styles.tag}><Feather name="github" size={13} color="#74639B"/><Text style={styles.tagText}>GitHub integration</Text></View>
           </View>
         </View>
         <View style={styles.panel}>

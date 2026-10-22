@@ -632,7 +632,15 @@ function RootApp() {
             latest={lastMessage} initialModel={provider} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
           {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
             onChoose={file => { setGithubFile(file); setLastMessage(''); go('chat'); }} />}
-          {page === 'playground' && <LocalPlayground onBack={() => go('workspace')} onChat={() => go('chat')}/>}
+          {page === 'playground' && <LocalPlayground onBack={() => go('workspace')} onChat={(fileName, content) => {
+            if (!signedIn) {
+              Alert.alert('Sign in required', 'Sign in in Settings before sending code to a model.');
+              go('settings');
+              return;
+            }
+            setLastMessage('Review this local code file: ' + fileName + '\\n\\n' + content.slice(0,9000));
+            go('chat');
+          }}/>}
           {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
             openRepos={() => go('files')} />}
         </SafeAreaView>

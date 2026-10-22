@@ -22,6 +22,9 @@ import Svg, { Circle, Rect } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { IntegrationsSettings, RepositoryBrowser, type SelectedGitHubFile } from './src/components/NoetharaIntegrations';
 import { ConnectedChat } from './src/components/ConnectedChat';
+import { AuthScreen } from './src/components/AuthScreen';
+import { supabase, getSession, getPreferredModel, BEAM_ID } from './src/lib/noetharaBackend';
+import { ModelPicker } from './src/components/ModelPicker';
 
 type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
@@ -212,13 +215,13 @@ function EditorToolbar({ onKey }: { onKey: (key: ToolKey) => void }) {
 }
 function Composer({
   prompt, setPrompt, inputRef, selection, setSelection, onFocus, onBlur, onSend,
-  isFocused, mode, setMode, provider, setProvider, quality, setQuality,
+  isFocused, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
   prompt: string; setPrompt: (value: string) => void; inputRef: React.RefObject<TextInput | null>;
   selection: { start: number; end: number }; setSelection: (value: { start: number; end: number }) => void;
   onFocus: () => void; onBlur: () => void; onSend: () => void;
   isFocused: boolean; mode: string; setMode: (value: string) => void; provider: string;
-  setProvider: (value: string) => void; quality: string; setQuality: (value: string) => void;
+  setProvider: (value: string) => void; openModelPicker: () => void; quality: string; setQuality: (value: string) => void;
 }) {
   const choose = (label: string, options: string[], setter: (value: string) => void) => {
     Alert.alert(label, 'Visual selector — no external API is connected.', [
@@ -255,8 +258,8 @@ function Composer({
           <Text style={[styles.optionText, { color: COLORS.violet }]}>{mode}</Text><Icon name="chevron-down" color={COLORS.violet} size={13} />
         </Tap>
         <Text style={styles.optionDivider}>·</Text>
-        <Tap style={styles.option} onPress={() => choose('AI model', ['Beam Free', 'Gemini Free', 'Local Model'], setProvider)}>
-          <Text style={styles.optionText}>{provider}</Text><Icon name="chevron-down" color={COLORS.ink} size={13} />
+        <Tap style={styles.option} onPress={openModelPicker}>
+          <Text numberOfLines={1} style={[styles.optionText,{maxWidth:105}]}>{provider.includes('/')?provider.split('/').pop():provider.replace('Beam-1.0-501B-A23B','Beam Free')}</Text><Icon name="chevron-down" color={COLORS.ink} size={13} />
         </Tap>
         <Text style={styles.optionDivider}>·</Text>
         <Tap style={styles.option} onPress={() => Alert.alert('OpenCode', 'OpenCode server integration is planned. This is a native front-end preview.')}>
@@ -273,13 +276,13 @@ function Composer({
 
 function Workspace({
   openMenu, prompt, setPrompt, inputRef, selection, setSelection,
-  keyboardVisible, setKeyboardVisible, send, onTool, mode, setMode, provider, setProvider, quality, setQuality,
+  keyboardVisible, setKeyboardVisible, send, onTool, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
   openMenu: () => void; prompt: string; setPrompt: (p: string) => void; inputRef: React.RefObject<TextInput | null>;
   selection: { start: number; end: number }; setSelection: (v: { start: number; end: number }) => void;
   keyboardVisible: boolean; setKeyboardVisible: (v: boolean) => void; send: () => void;
   onTool: (key: ToolKey) => void;
-  mode: string; setMode: (v: string) => void; provider: string; setProvider: (v: string) => void;
+  mode: string; setMode: (v: string) => void; provider: string; setProvider: (v: string) => void; openModelPicker: () => void;
   quality: string; setQuality: (v: string) => void;
 }) {
   const { width, height } = useWindowDimensions();
@@ -310,7 +313,7 @@ function Workspace({
               selection={selection} setSelection={setSelection}
               onFocus={() => setKeyboardVisible(true)} onBlur={() => setKeyboardVisible(false)}
               onSend={send} isFocused={keyboardVisible}
-              mode={mode} setMode={setMode} provider={provider} setProvider={setProvider}
+              mode={mode} setMode={setMode} provider={provider} setProvider={setProvider} openModelPicker={openModelPicker}
               quality={quality} setQuality={setQuality} />
             <HintRow />
           </View>
@@ -513,11 +516,29 @@ function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boo
 
 function RootApp() {
   const [page, setPage] = useState<Page>('workspace');
+  const [authReady, setAuthReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [guestPreview, setGuestPreview] = useState(false);
+  const [showHomeModels, setShowHomeModels] = useState(false);
+  useEffect(() => {
+    let current = true;
+    void getSession().then(session => {
+      if (current) { setSignedIn(Boolean(session)); setAuthReady(true); }
+    }).catch(() => { if (current) setAuthReady(true); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (current) {
+        setSignedIn(Boolean(session));
+        if (session) setGuestPreview(false);
+      }
+    });
+    return () => { current = false; listener.subscription.unsubscribe(); };
+  }, []);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState('Build');
-  const [provider, setProvider] = useState('Beam Free');
+  const [provider, setProvider] = useState(BEAM_ID);
+  useEffect(() => { void getPreferredModel().then(setProvider).catch(()=>{}); }, []);
   const [quality, setQuality] = useState('max');
   const [lastMessage, setLastMessage] = useState('');
   const [githubFile, setGithubFile] = useState<SelectedGitHubFile | null>(null);
@@ -581,6 +602,17 @@ function RootApp() {
     setSelection({ start: pos, end: pos });
     inputRef.current?.focus();
   };
+  if (!authReady) return <View style={[styles.fill,{backgroundColor:'#FCFAF7',alignItems:'center',justifyContent:'center'}]}>
+    <Text style={{color:'#8165C9',fontWeight:'600'}}>Loading Noethara Dev…</Text>
+  </View>;
+  if (!signedIn && !guestPreview) return (
+    <View style={{flex:1,backgroundColor:'#FCFAF7'}}>
+      <StatusBar style="dark"/>
+      <SafeAreaView style={styles.fill} edges={['top','bottom']}>
+        <AuthScreen onGuest={() => setGuestPreview(true)}/>
+      </SafeAreaView>
+    </View>
+  );
   return (
     <View style={styles.fill} {...gestures.panHandlers}>
       <LinearGradient colors={['#FCFAF7', '#FBF9F6', '#F7F5F2']} style={styles.fill}>
@@ -591,7 +623,7 @@ function RootApp() {
             inputRef={inputRef} selection={selection} setSelection={setSelection}
             keyboardVisible={keyboardVisible} setKeyboardVisible={setKeyboardVisible}
             send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
-            setProvider={setProvider} quality={quality} setQuality={setQuality} />}
+            setProvider={setProvider} openModelPicker={() => setShowHomeModels(true)} quality={quality} setQuality={setQuality} />}
           {page === 'terminals' && <TerminalsPage onBack={() => go('workspace')} />}
           {page === 'chat' && <ConnectedChat key={lastMessage} onMenu={openDrawer}
             onSettings={() => go('settings')} onFiles={() => go('files')}
@@ -603,6 +635,8 @@ function RootApp() {
         </SafeAreaView>
       </KeyboardAvoidingView>
       <NavigationDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} onNavigate={go} page={page} />
+      <ModelPicker visible={showHomeModels} onClose={() => setShowHomeModels(false)}
+        selected={provider} onSelect={setProvider} />
       </LinearGradient>
     </View>
   );

@@ -182,6 +182,7 @@ function TerminalFooter() {
   );
 }
 function EditorToolbar({ onKey }: { onKey: (key: ToolKey) => void }) {
+  const { width } = useWindowDimensions();
   const buttons: Array<{ key: ToolKey; icon?: FeatherName; label?: string }> = [
     { key: 'ESC', label: 'ESC', icon: 'rotate-ccw' }, { key: '+', icon: 'plus' },
     { key: 'TAB', label: 'TAB', icon: 'corner-down-right' }, { key: 'CTRL', label: 'CTRL' },
@@ -189,21 +190,24 @@ function EditorToolbar({ onKey }: { onKey: (key: ToolKey) => void }) {
     { key: 'left', icon: 'arrow-left' }, { key: 'right', icon: 'arrow-right' },
     { key: 'mic', icon: 'mic' }, { key: 'hide', icon: 'chevrons-down' },
   ];
+  // Shrink the key proportions as one row instead of clipping the final
+  // keyboard dismissal control on smaller iPhones.
+  const narrow = width < 350;
   return (
-    <LinearGradient colors={['rgba(245,243,244,0.96)', 'rgba(237,236,239,0.97)']} style={styles.editorToolbar}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
-        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingHorizontal: 6 }}>
+    <LinearGradient colors={['rgba(245,243,244,0.97)', 'rgba(237,236,239,0.98)']} style={styles.editorToolbar}>
+      <View style={styles.toolbarContents}>
         {buttons.map(b =>
-          <Tap key={b.key} style={styles.toolbarKey} onPress={() => onKey(b.key)} accessibilityLabel={b.key}>
-            {b.icon && <Icon name={b.icon} size={b.label ? 14 : 20} />}
-            {b.label && <Text style={styles.toolbarLabel}>{b.label}</Text>}
+          <Tap key={b.key} style={[styles.toolbarKey, {
+            flex: b.key === 'ESC' || b.key === 'TAB' ? 1.38 : b.key === 'CTRL' ? 1.14 : 1,
+          }]} onPress={() => onKey(b.key)} accessibilityLabel={b.key === 'hide' ? 'Hide keyboard' : b.key}>
+            {b.icon && <Icon name={b.icon} size={b.label ? (narrow ? 11 : 12) : (narrow ? 17 : 19)} />}
+            {b.label && <Text numberOfLines={1} style={[styles.toolbarLabel, narrow && { fontSize: 8 }]}>{b.label}</Text>}
           </Tap>
         )}
-      </ScrollView>
+      </View>
     </LinearGradient>
   );
 }
-
 function Composer({
   prompt, setPrompt, inputRef, selection, setSelection, onFocus, onBlur, onSend,
   isFocused, mode, setMode, provider, setProvider, quality, setQuality,
@@ -308,7 +312,7 @@ function Workspace({
               quality={quality} setQuality={setQuality} />
             <HintRow />
           </View>
-          <View style={styles.workspaceSpacer} />
+          {!keyboardVisible && <View style={styles.workspaceSpacer} />}
           <View style={[styles.tipWrap, keyboardVisible && styles.tipFocused]}>
             <TipCard />
           </View>
@@ -579,7 +583,7 @@ function RootApp() {
       <LinearGradient colors={['#FCFAF7', '#FBF9F6', '#F7F5F2']} style={styles.fill}>
       <StatusBar style="dark" />
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <SafeAreaView style={styles.fill} edges={['top', 'bottom']}>
+        <SafeAreaView style={styles.fill} edges={keyboardVisible ? ['top'] : ['top', 'bottom']}>
           {page === 'workspace' && <Workspace openMenu={openDrawer} prompt={prompt} setPrompt={setPrompt}
             inputRef={inputRef} selection={selection} setSelection={setSelection}
             keyboardVisible={keyboardVisible} setKeyboardVisible={setKeyboardVisible}
@@ -616,9 +620,9 @@ const styles = StyleSheet.create({
   chatHeader: { fontSize: 19, fontWeight: '600', color: COLORS.ink, position: 'absolute', left: 0, right: 0, textAlign: 'center', zIndex: -1 },
   workspaceBody: { flex: 1, alignSelf: 'center', paddingHorizontal: 20 },
   workspaceScrollContent: { flexGrow: 1, paddingBottom: 18 },
-  workspaceScrollFocused: { paddingTop: 4, paddingBottom: 14 },
+  workspaceScrollFocused: { flexGrow: 0, paddingTop: 4, paddingBottom: 12 },
   workspaceSpacer: { flexGrow: 1, minHeight: 20 },
-  workspaceDock: { flexShrink: 0, backgroundColor: 'transparent', paddingTop: 6, paddingBottom: 3 },
+  workspaceDock: { flexShrink: 0, backgroundColor: 'transparent', paddingTop: 4, paddingBottom: 0 },
   hero: { alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 24 },
   wordmark: { marginTop: 13, alignItems: 'center' },
   orbDot: { position: 'absolute', width: 15, height: 15, borderRadius: 16, borderWidth: 3, borderColor: '#FBFAF7' },
@@ -645,7 +649,7 @@ const styles = StyleSheet.create({
   hintKey: { fontFamily: MONO, fontSize: 12, color: '#252627', backgroundColor: '#F7F6F4', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderColor: '#E8E5E1', borderWidth: 1, borderRadius: 7 },
   hintText: { color: COLORS.muted, fontFamily: MONO, fontSize: 12 },
   tipWrap: { marginTop: 14, flexShrink: 0 },
-  tipFocused: { marginTop: 20 },
+  tipFocused: { marginTop: 16 },
   tipPanel: { paddingVertical: 16, paddingHorizontal: 14, minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FCF6ED' },
   tipIcon: { width: 37, height: 37, borderRadius: 22, backgroundColor: '#F9DCB1', alignItems: 'center', justifyContent: 'center' },
   tipText: { fontFamily: MONO, fontSize: 13.2, lineHeight: 20, flexShrink: 1, color: COLORS.mutedDark },
@@ -654,9 +658,10 @@ const styles = StyleSheet.create({
   footerStrong: { fontFamily: MONO, color: COLORS.ink, fontSize: 12.5 },
   footerGreen: { height: 11, width: 11, borderWidth: 1.4, borderRadius: 12, borderColor: '#2EBC63', justifyContent: 'center', alignItems: 'center' },
   footerGreenDot: { width: 4, height: 4, borderRadius: 4, backgroundColor: '#2EBC63' },
-  editorToolbar: { height: 58, marginHorizontal: -16, borderRadius: 18, justifyContent: 'center', paddingVertical: 6 },
-  toolbarKey: { backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: 10, minWidth: 31, height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5, gap: 2, shadowColor: '#8B8992', shadowOpacity: 0.07, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6 },
-  toolbarLabel: { fontSize: 10, color: COLORS.ink, fontWeight: '500' },
+  editorToolbar: { height: 56, marginHorizontal: -16, borderRadius: 18, justifyContent: 'center', paddingVertical: 6 },
+  toolbarContents: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, gap: 3, width: '100%' },
+  toolbarKey: { backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: 10, minWidth: 0, height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, shadowColor: '#8B8992', shadowOpacity: 0.07, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6 },
+  toolbarLabel: { fontSize: 9, color: COLORS.ink, fontWeight: '500' },
   drawerOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
   drawerShell: { flex: 1, height: '100%', borderTopRightRadius: 31, borderBottomRightRadius: 31, overflow: 'hidden', shadowColor: '#141414', shadowOpacity: 0.18, shadowOffset: { width: 10, height: 0 }, shadowRadius: 25, elevation: 16 },
   drawerBrand: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 22, marginTop: 32, gap: 11 },

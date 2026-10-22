@@ -49,7 +49,7 @@ export async function signInWithProvider(provider: 'github' | 'google') {
   if (!code) throw Error('Missing authorization code. Confirm the Supabase redirect allowlist includes ' + redirectTo);
   const exchanged = await supabase.auth.exchangeCodeForSession(code);
   if (exchanged.error) throw exchanged.error;
-  if (provider === 'github') githubToken = exchanged.data.session?.provider_token ?? null;
+  githubToken = provider === 'github' ? (exchanged.data.session?.provider_token ?? null) : null;
   return exchanged.data.session;
 }
 export const signInWithGitHub = () => signInWithProvider('github');
@@ -57,7 +57,11 @@ export const signInWithGoogle = () => signInWithProvider('google');
 export async function getSession() {
   const result = await supabase.auth.getSession();
   if (result.error) throw result.error;
-  if (result.data.session?.provider_token) githubToken = result.data.session.provider_token;
+  const current = result.data.session;
+  // A Google OAuth access token must never be sent as a GitHub credential.
+  githubToken = current?.user?.app_metadata?.provider === 'github'
+    ? (current.provider_token ?? null)
+    : null;
   return result.data.session;
 }
 export async function signInWithEmail(email: string, password: string) {

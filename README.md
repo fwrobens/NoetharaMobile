@@ -1,26 +1,44 @@
-# Noethara Dev — Expo mobile UI
+# Noethara Dev — Expo SDK 57
 
-A native React Native recreation of the approved soft-ivory OpenCode/Cosyra-inspired mobile mockup, built as a **personal, offline-safe interface prototype**.
+Native React Native recreation of the approved soft-ivory OpenCode-inspired UI, intended for personal testing in Expo Go on iPhone.
 
-## Run on iPhone (Expo Go)
-This project deliberately targets **Expo SDK 54**, because the App Store build of Expo Go for iOS supports SDK 54.
+## Compatibility
 
-1. Clone or open this repo in Cosyra.
-2. Run **npm install**.
-3. Run **npx expo start --tunnel** if the phone cannot connect via LAN, or **npm start** on a shared network.
-4. Open the QR/link in **Expo Go**.
-5. Run **npm run typecheck** to check TypeScript and **npx expo install --check** to check dependencies.
+- **Expo SDK 57** (matches Expo Go that reports SDK 57.0.0)
+- React Native 0.86.3 and React 19.2.3
+- Node.js 22.13 or later is recommended for Expo SDK 57.
+- No development build is required for the current interface.
 
-## Included
-- Native ivory gradients, soft panels, hairline borders and shadows
-- Animated orbital rings, floating terminal tile and pixel-drawn two-tone OpenCode logo
-- Multiline composer, native keyboard and functional coding-accessory shortcut bar
-- Animated drawer with Terminals / Code / Files navigation
-- Terminal/project overview, chat UI preview, files empty state
-- UI transitions, mode/model selectors, tip card and terminal footer
+## Run in Cosyra (fresh install after upgrading from SDK 54)
 
-## Not connected yet
-This is the front-end milestone. No AI service or coding backend is attached; buttons do not execute shell commands or push to GitHub. The dot displays local demo state, not a live cloud connection.
+Open the latest version of this repository and run:
 
-## Stack
-Expo SDK 54 · React Native · TypeScript · React Native Animated · react-native-svg · expo-linear-gradient.
+```bash
+git pull origin main
+rm -rf node_modules package-lock.json .expo
+npm install
+npx expo install --check
+npx expo start --clear --tunnel
+```
+
+If Cosyra automatically syncs the repo instead of using Git, skip `git pull`. If the --tunnel option is unavailable, start with `npx expo start --clear` and use the address Cosyra exposes.
+
+Open the newly generated Expo Go link (not an old link cached from SDK 54).
+
+You can run `npm run typecheck` and `npm run check` to validate your local setup.
+
+## Interface features
+
+- Soft ivory backgrounds, subtle gradient panels, hairline borders and shadows
+- Animated orbital graphic and floating terminal icon
+- Two-tone pixel OpenCode wordmark
+- Multiline prompt, iPhone keyboard and coding shortcut toolbar
+- Animated navigation drawer
+- Terminals, Code and Files pages
+- UI state transitions and native safe-area handling
+
+## Implementation status
+
+**Interface preview only.** No AI service or shell execution backend is connected. The status dot is the demo UI status, not proof of a remote server connection.
+
+The UI was written in React Native + TypeScript, using react-native-svg, React Native Animated, expo-linear-gradient and Expo vector icons. The SDK 57 dependency versions have been aligned with Expo's SDK compatibility matrix.

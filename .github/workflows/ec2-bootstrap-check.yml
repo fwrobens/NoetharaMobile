@@ -1,0 +1,31 @@
+name: Validate EC2 bootstrap
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/aws/**'
+      - 'runtime/**'
+      - '.github/workflows/ec2-bootstrap-check.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check shell syntax
+        run: |
+          bash -n infra/aws/provision-live-server.sh
+          bash -n infra/aws/deploy.sh
+          bash -n infra/aws/setup-runtime.sh
+      - name: Check Node.js runtime syntax
+        run: |
+          node --check runtime/health.mjs
+          node --check runtime/server.mjs
+      - name: Validate runtime package
+        working-directory: runtime
+        run: |
+          npm install --no-audit --no-fund
+          npm ls --depth=0

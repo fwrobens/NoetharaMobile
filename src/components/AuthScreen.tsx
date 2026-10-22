@@ -102,7 +102,7 @@ const styles=StyleSheet.create({
  liveDot:{width:9,height:9,borderRadius:9,backgroundColor:'#28C968'},
  hero:{marginTop:38,marginBottom:34},
  kicker:{color:'#A49AAB',fontWeight:'700',letterSpacing:1.4,fontSize:10.5,marginBottom:12},
- headline:{color:'#242127',fontSize:38,fontWeight:'750',letterSpacing:-1.8,lineHeight:46},
+ headline:{color:'#242127',fontSize:38,fontWeight:'700',letterSpacing:-1.8,lineHeight:46},
  subline:{color:'#85808A',fontSize:14.5,lineHeight:23,marginTop:16,maxWidth:330},
  tagRow:{flexDirection:'row',gap:9,marginTop:21,flexWrap:'wrap'},
  tag:{flexDirection:'row',gap:7,alignItems:'center',borderRadius:13,backgroundColor:'rgba(245,240,248,0.95)',paddingHorizontal:12,paddingVertical:9},

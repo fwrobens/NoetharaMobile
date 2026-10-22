@@ -12,7 +12,7 @@ type RuntimePacket={type?:string;data?:string;message?:string;agent?:string};
 export function RemoteTerminal({agent,onBack}:{
   agent:Agent;onBack:()=>void;
 }) {
-  const [selected,setSelected]=useState<Agent>(agent);
+  const selected=agent;
   const [url,setUrl]=useState('');
   const [secret,setSecret]=useState('');
   const [input,setInput]=useState('');
@@ -62,10 +62,6 @@ export function RemoteTerminal({agent,onBack}:{
     ws.onerror=()=>{add('\nConnection failed. Check the private runtime URL and TLS settings.\n');setStatus('disconnected');};
     ws.onclose=()=>{if(socket.current===ws)socket.current=null;setStatus('disconnected');};
   };
-  const switchAgent=(next:Agent)=>{
-    if(selected===next)return;
-    disconnect();setSelected(next);setOutput('Selected '+names[next]+'. Connect to start its CLI.\n');
-  };
   const send=()=>{
     if(!input)return;
     if(status!=='connected'||socket.current?.readyState!==WebSocket.OPEN){
@@ -83,15 +79,20 @@ export function RemoteTerminal({agent,onBack}:{
   return <View style={styles.root}>
     <View style={styles.top}>
       <Pressable style={styles.back} onPress={onBack}><Feather name="chevron-left" size={23} color={COLORS.light}/></Pressable>
-      <View style={{flex:1}}><Text style={styles.head}>Terminal</Text><Text style={styles.sub}>Private remote CLI workspace</Text></View>
+      <View style={{flex:1}}><Text style={styles.head}>{names[selected]}</Text><Text style={styles.sub}>Private Linux workspace</Text></View>
       <View style={[styles.dot,{backgroundColor:status==='connected'?'#42D185':'#B8AFB9'}]}/>
       <Pressable onPress={()=>setSetup(v=>!v)} style={styles.back}><Feather name="settings" size={20} color={COLORS.light}/></Pressable>
     </View>
-    <View style={styles.tabs}>
-      {(['opencode','codex','claude'] as Agent[]).map(name=>
-        <Pressable key={name} onPress={()=>switchAgent(name)} style={[styles.tab,selected===name&&styles.tabActive]}>
-          <Text style={[styles.tabText,selected===name&&styles.tabActiveText]}>{names[name]}</Text>
-        </Pressable>)}
+    <View style={styles.sessionBanner}>
+      <View style={styles.sessionLogo}><Feather name="terminal" size={19} color="#BFA9EF"/></View>
+      <View style={{flex:1}}>
+        <Text style={styles.sessionTitle}>{names[selected]}</Text>
+        <Text style={styles.sessionSubtitle}>Independent CLI session · {status}</Text>
+      </View>
+      <Pressable onPress={()=>{if(status==='connected')disconnect();else void connect();}}
+        style={styles.sessionAction}>
+        <Text style={styles.sessionActionText}>{status==='connected'?'Disconnect':'Connect'}</Text>
+      </Pressable>
     </View>
     {setup&&<View style={styles.setup}>
       <Text style={styles.setupTitle}>Private workspace connection</Text>
@@ -133,10 +134,13 @@ const styles=StyleSheet.create({
   back:{padding:9},head:{color:COLORS.light,fontWeight:'700',fontSize:19},
   sub:{color:COLORS.muted,fontSize:11,marginTop:4},
   dot:{width:9,height:9,borderRadius:7},
-  tabs:{paddingHorizontal:14,flexDirection:'row',gap:8,marginBottom:11},
-  tab:{borderWidth:1,borderColor:COLORS.line,borderRadius:12,paddingHorizontal:12,paddingVertical:10},
-  tabActive:{borderColor:'#8972C7',backgroundColor:'#342C43'},
-  tabText:{fontSize:12,color:'#A9A3AC'},tabActiveText:{color:'#E8DCF9',fontWeight:'700'},
+  sessionBanner:{marginHorizontal:15,marginBottom:14,backgroundColor:'#222127',borderColor:'#363039',
+    borderWidth:1,borderRadius:16,padding:13,flexDirection:'row',alignItems:'center',gap:12},
+  sessionLogo:{width:41,height:41,borderRadius:13,backgroundColor:'#32293E',justifyContent:'center',alignItems:'center'},
+  sessionTitle:{fontSize:15,fontWeight:'700',color:COLORS.light},
+  sessionSubtitle:{fontSize:11,color:'#958E9B',marginTop:5},
+  sessionAction:{backgroundColor:'#372D42',borderRadius:11,paddingVertical:10,paddingHorizontal:12},
+  sessionActionText:{color:'#D3BFF2',fontSize:11,fontWeight:'700'},
   setup:{marginHorizontal:15,backgroundColor:COLORS.panel,borderRadius:15,padding:15,gap:10,marginBottom:12},
   setupTitle:{color:COLORS.light,fontSize:14,fontWeight:'700'},
   setupInput:{backgroundColor:'#1A191C',borderWidth:1,borderColor:COLORS.line,borderRadius:10,

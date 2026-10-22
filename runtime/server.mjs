@@ -40,16 +40,20 @@ wss.on('connection',(ws)=>{
       }
       authenticated=true;
       clearTimeout(timeout);
-      // Linux util-linux "script" launches a pseudo-terminal, so interactive
-      // programs such as OpenCode/Codex/Claude receive a usable TTY.
-      proc=spawn('script',['-q','-f','-c',data.agent,'/dev/null'],{
+      // Each selected CLI gets a dedicated tmux session. Reconnecting to the
+      // same CLI reattaches its live process, instead of starting over.
+      // Agent names are strict allowlist entries, not user-supplied commands.
+      // "script" supplies the TTY required by interactive programs.
+      const session='noethara-'+data.agent;
+      const command='tmux -L noethara -u new-session -A -s '+session+' '+data.agent;
+      proc=spawn('script',['-q','-f','-c',command,'/dev/null'],{
         cwd:process.env.NOETHARA_WORKSPACE||process.cwd(),
         env:{...process.env,TERM:'xterm-256color',NO_COLOR:'1'},
         stdio:['pipe','pipe','pipe'],
       });
       proc.stdout.on('data',chunk=>send({type:'output',data:chunk.toString('utf8').slice(0,24000)}));
       proc.stderr.on('data',chunk=>send({type:'output',data:chunk.toString('utf8').slice(0,12000)}));
-      proc.on('error',err=>send({type:'error',message:'Could not start CLI: '+err.message}));
+      proc.on('error',err=>send({type:'error',message:'Could not attach CLI session: '+err.message+' (tmux and the CLI must be installed)'}));
       proc.on('exit',code=>{send({type:'exit',code});if(ws.readyState===1)ws.close();});
       send({type:'ready',agent:data.agent});
       return;

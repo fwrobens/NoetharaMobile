@@ -110,6 +110,14 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
             <Text style={styles.fieldText}>Set REFLECTION_API_KEY in Supabase → Edge Function Secrets. You may alternatively set VERCEL_AI_GATEWAY_KEY for free-tier Beam requests. Do not paste keys into this app.</Text>
             <Action title="Refresh connection status" onPress={()=>run(async()=>setStatus(await noetharaAPI.status()))} disabled={loading}/>
           </View></Section>
+          <Section label="Connection URLs"><View style={styles.fieldWrap}>
+            <Text style={styles.caption}>YOUR PRIVATE BACKEND GATEWAY</Text>
+            <Text selectable style={styles.url}>https://smiubazuuptrknffmouo.supabase.co/functions/v1/noethara-api/chat</Text>
+            <Text style={styles.caption}>PRIMARY BEAM API (SERVER ONLY)</Text>
+            <Text selectable style={styles.url}>https://api.reflection.ai/openai/v1</Text>
+            <Text style={styles.caption}>OPTIONAL FREE-MODEL FALLBACK (SERVER ONLY)</Text>
+            <Text selectable style={styles.url}>https://ai-gateway.vercel.sh/v1</Text>
+          </View></Section>
         </> : <>
           <Note>Your GitHub OAuth callback is the fixed Supabase URL below. The second redirect returns to your running Expo app.</Note>
           <Section label="GitHub OAuth">

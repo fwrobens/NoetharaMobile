@@ -198,11 +198,11 @@ export type Repo = { full_name: string; private: boolean; default_branch: string
 export type GithubEntry = { name: string; path: string; type: string; size?: number };
 
 async function callAPI<T>(path: string, options: {
-  method?: 'GET' | 'POST'; payload?: unknown; github?: boolean;
+  method?: 'GET' | 'POST'; payload?: unknown; github?: boolean; githubOptional?: boolean;
 } = {}): Promise<T> {
   const session = await getSession();
   if (!session) throw Error('Sign in with GitHub or email in Settings first.');
-  const token = options.github ? githubToken : null;
+  const token = (options.github || options.githubOptional) ? githubToken : null;
   if (options.github && !token) {
     throw Error('GitHub repository access is not authorized. Connect GitHub in Settings.');
   }
@@ -229,7 +229,7 @@ export const noetharaAPI = {
     callAPI<{ answer: string; model: string; provider: string; usage: unknown; fallbackUsed: boolean }>('/chat', {
       method: 'POST',
       payload: { messages, ...(context ? { context } : {}), ...(model ? { model } : {}) },
-      github: Boolean(context),
+      github: Boolean(context), githubOptional: true,
     }),
   repos: () => callAPI<{ repos: Repo[] }>('/github/repos', { github: true }),
   contents: (repo: string, path: string, branch: string) =>

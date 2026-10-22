@@ -5,6 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type Session } from '@supabase/supabase-js';
 import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import * as SecureStore from 'expo-secure-store';
+import { Linking } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 export const SUPABASE_URL = 'https://smiubazuuptrknffmouo.supabase.co';
@@ -23,9 +25,70 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 let githubToken: string | null = null;
-// Provider tokens are short-lived and never written to our project database.
+const GITHUB_TOKEN_KEY = 'noethara-github-provider-token';
+let callbackExchange: Promise<Session | null> | null = null;
+let processingCode = '';
 export function getGitHubToken() { return githubToken; }
 export function getOAuthReturnUrl() { return ExpoLinking.createURL('auth/callback'); }
+async function persistGitHubToken(token: string | null) {
+  githubToken = token;
+  if (token) await SecureStore.setItemAsync(GITHUB_TOKEN_KEY, token);
+  else await SecureStore.deleteItemAsync(GITHUB_TOKEN_KEY);
+}
+export async function getGitHubConnection() {
+  const session = await getSession();
+  if (!session) return false;
+  if (!githubToken) githubToken = await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
+  return Boolean(githubToken);
+}
+function oauthParameters(input: string): URLSearchParams {
+  const url = new URL(input);
+  const params = new URLSearchParams(url.search);
+  if (url.hash.startsWith('#')) {
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    hashParams.forEach((value,key) => params.set(key,value));
+  }
+  return params;
+}
+// The system deep-link listener and the Safari auth-session result can arrive
+// together. Deduplicate the PKCE exchange: an authorization code is one-use.
+export async function handleOAuthRedirect(url: string, providerHint?: 'github' | 'google'): Promise<Session | null> {
+  const values = oauthParameters(url);
+  const error = values.get('error_description') || values.get('error');
+  if (error) throw Error(decodeURIComponent(error));
+  const accessToken = values.get('access_token');
+  const refreshToken = values.get('refresh_token');
+  if (accessToken && refreshToken) {
+    const result = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    if (result.error) throw result.error;
+    return result.data.session;
+  }
+  const code = values.get('code');
+  if (!code) return (await supabase.auth.getSession()).data.session;
+  if (callbackExchange && processingCode === code) return callbackExchange;
+  processingCode = code;
+  callbackExchange = (async () => {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    const session = data.session;
+    if (providerHint === 'github' && session.provider_token)
+      await persistGitHubToken(session.provider_token);
+    // If this callback was dispatched by Linking rather than openAuthSessionAsync,
+    // use the provider metadata from the resulting Supabase user.
+    else if (session.user.app_metadata?.provider === 'github' && session.provider_token)
+      await persistGitHubToken(session.provider_token);
+    return session;
+  })();
+  try { return await callbackExchange; }
+  finally { callbackExchange = null; }
+}
+export async function recoverPendingOAuthRedirect() {
+  const initial = await Linking.getInitialURL();
+  if (initial && /[?&#](code|access_token|error)=/.test(initial)) {
+    return handleOAuthRedirect(initial);
+  }
+  return null;
+}
 export async function signInWithProvider(provider: 'github' | 'google') {
   const redirectTo = getOAuthReturnUrl();
   const { data, error } = await supabase.auth.signInWithOAuth({
@@ -37,32 +100,27 @@ export async function signInWithProvider(provider: 'github' | 'google') {
     },
   });
   if (error) throw error;
-  if (!data?.url) throw Error('The provider did not return an authorization URL.');
+  if (!data?.url) throw Error('OAuth authorization URL is missing');
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   if (result.type !== 'success') {
-    throw Error(provider + ' sign-in was canceled or the redirect could not return to Expo. Check the allowed URLs in Supabase Auth.');
+    throw Error(provider + ' authorization did not return a callback. Check Supabase allowlisted redirect URL: ' + redirectTo);
   }
-  const redirect = new URL(result.url);
-  const oauthError = redirect.searchParams.get('error_description');
-  if (oauthError) throw Error(oauthError);
-  const code = redirect.searchParams.get('code');
-  if (!code) throw Error('Missing authorization code. Confirm the Supabase redirect allowlist includes ' + redirectTo);
-  const exchanged = await supabase.auth.exchangeCodeForSession(code);
-  if (exchanged.error) throw exchanged.error;
-  githubToken = provider === 'github' ? (exchanged.data.session?.provider_token ?? null) : null;
-  return exchanged.data.session;
+  const session = await handleOAuthRedirect(result.url, provider);
+  if (!session) throw Error('OAuth did not create a valid Supabase session.');
+  return session;
 }
 export const signInWithGitHub = () => signInWithProvider('github');
 export const signInWithGoogle = () => signInWithProvider('google');
 export async function getSession() {
   const result = await supabase.auth.getSession();
   if (result.error) throw result.error;
-  const current = result.data.session;
-  // A Google OAuth access token must never be sent as a GitHub credential.
-  githubToken = current?.user?.app_metadata?.provider === 'github'
-    ? (current.provider_token ?? null)
-    : null;
-  return result.data.session;
+  const session = result.data.session;
+  if (!session) { githubToken = null; return null; }
+  if (!githubToken) githubToken = await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
+  if (!githubToken && session.user.app_metadata?.provider === 'github' && session.provider_token) {
+    await persistGitHubToken(session.provider_token);
+  }
+  return session;
 }
 export async function signInWithEmail(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -75,11 +133,36 @@ export async function signUpWithEmail(email: string, password: string) {
   return data.session;
 }
 export async function logout() {
-  githubToken = null;
+  await persistGitHubToken(null);
   const result = await supabase.auth.signOut();
   if (result.error) throw result.error;
 }
 export type ChatEntry = { role: 'user' | 'assistant'; content: string };
+export type ConversationSummary = { id: string; title: string; created_at: string; updated_at: string };
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const session = await getSession();
+  if (!session) return [];
+  const { data, error } = await supabase.from('noethara_chats')
+    .select('id,title,created_at,updated_at').eq('user_id',session.user.id)
+    .order('updated_at',{ascending:false}).limit(75);
+  if (error) throw error;
+  return (data || []) as ConversationSummary[];
+}
+export async function loadConversation(id: string): Promise<ChatEntry[]> {
+  const session = await getSession();
+  if (!session) throw Error('Sign in to view your conversations.');
+  const { data, error } = await supabase.from('noethara_messages')
+    .select('role,content').eq('chat_id',id).eq('user_id',session.user.id)
+    .order('created_at',{ascending:true}).limit(500);
+  if (error) throw error;
+  return (data || []) as ChatEntry[];
+}
+export async function deleteConversation(id: string) {
+  const session = await getSession();
+  if (!session) throw Error('Sign in first');
+  const { error } = await supabase.from('noethara_chats').delete().eq('id',id).eq('user_id',session.user.id);
+  if (error) throw error;
+}
 export type AIModel = { id: string; provider: 'beam' | 'nvidia'; name: string };
 export type AIModelsResponse = {
   providers: { beam: boolean; nvidia: boolean };
@@ -149,6 +232,11 @@ export async function persistChat(chatId: string | null, items: ChatEntry[]): Pr
     }).select('id').single();
     if (error) throw error;
     id = data.id;
+  }
+  if (chatId) {
+    const { error: bumpError } = await supabase.from('noethara_chats')
+      .update({updated_at:new Date().toISOString()}).eq('id',id).eq('user_id',session.user.id);
+    if (bumpError) throw bumpError;
   }
   const last = items.at(-1);
   if (last) {

@@ -6,6 +6,7 @@ import {
   noetharaAPI, persistChat, getSession, type ChatEntry,
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
+import { ModelPicker, useModelPreference } from './ModelPicker';
 
 const COLORS = { ink:'#252326',muted:'#88878C',violet:'#7355C7',border:'#E9E6E1' };
 function I({name,size=20,color=COLORS.ink}:{name:React.ComponentProps<typeof Feather>['name'];size?:number;color?:string}) {
@@ -21,7 +22,8 @@ export function ConnectedChat({
   const [prompt,setPrompt]=useState('');
   const [thinking,setThinking]=useState(false);
   const [status,setStatus]=useState('');
-  const [model,setModel]=useState('Beam Free');
+  const { model, setModel } = useModelPreference();
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [chatId,setChatId]=useState<string|null>(null);
   const scrollRef=useRef<ScrollView>(null);
   useEffect(()=>{
@@ -35,11 +37,11 @@ export function ConnectedChat({
     try {
       await getSession().then(s=>{if(!s)throw Error('Sign in in Settings first.');});
       const id=await persistChat(null,next);setChatId(id);
-      const result=await noetharaAPI.chat(next,attachedFile??undefined);
+      const result=await noetharaAPI.chat(next,attachedFile??undefined,model);
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
       await persistChat(id,[answer]);
-      setStatus('Beam · '+result.provider);
+      setStatus(result.provider.toUpperCase() + ' · ' + result.model + (result.fallbackUsed ? ' (fallback)' : ''));
     }catch(e){setStatus(e instanceof Error?e.message:'Beam request failed');}
     finally{setThinking(false);}
   }
@@ -50,11 +52,11 @@ export function ConnectedChat({
     setMessages(next);
     try {
       const id=await persistChat(chatId,[{role:'user',content:text}]);setChatId(id);
-      const result=await noetharaAPI.chat(next.slice(-20),attachedFile??undefined);
+      const result=await noetharaAPI.chat(next.slice(-20),attachedFile??undefined,model);
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages(list=>[...list,answer]);
       await persistChat(id,[answer]);
-      setStatus('Beam · '+result.provider);
+      setStatus(result.provider.toUpperCase() + ' · ' + result.model + (result.fallbackUsed ? ' (fallback)' : ''));
     }catch(e){setStatus(e instanceof Error?e.message:'Unable to reach Beam');}
     finally{setThinking(false);}
   }
@@ -68,14 +70,14 @@ export function ConnectedChat({
       onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:true})}>
       {messages.length===0&&<View style={styles.empty}>
         <View style={styles.emptyIcon}>{I('terminal',35,COLORS.violet)}</View>
-        <Text style={styles.emptyTitle}>Build with Beam</Text>
-        <Text style={styles.emptyInfo}>Sign in and connect Beam in Settings to start asking questions about code or GitHub files.</Text>
+        <Text style={styles.emptyTitle}>Code with your AI</Text>
+        <Text style={styles.emptyInfo}>Pick a Beam or NVIDIA model, connect GitHub, and ask questions about your code.</Text>
       </View>}
       {messages.map((m,i)=><View key={i} style={m.role==='user'?styles.messageUser:styles.messageAssistant}>
-        <Text style={styles.messageRole}>{m.role==='user'?'YOU':'BEAM AI'}</Text>
+        <Text style={styles.messageRole}>{m.role==='user'?'YOU':'AI ASSISTANT'}</Text>
         <Text selectable style={styles.messageText}>{m.content}</Text>
       </View>)}
-      {thinking&&<View style={styles.thinking}><ActivityIndicator color={COLORS.violet} size="small"/><Text style={styles.thinkingText}>Beam is thinking…</Text></View>}
+      {thinking&&<View style={styles.thinking}><ActivityIndicator color={COLORS.violet} size="small"/><Text style={styles.thinkingText}>Generating response…</Text></View>}
       {!!status&&<Text style={[styles.status,!status.startsWith('Beam')&&styles.statusError]}>{status}</Text>}
     </ScrollView>
     <View style={styles.composerDock}>
@@ -91,12 +93,14 @@ export function ConnectedChat({
       </Pressable>
       <LinearGradient colors={['#FFFFFF','#F8F5F1']} style={styles.composer}>
         <TextInput value={prompt} onChangeText={setPrompt} multiline maxLength={14000}
-          placeholder="Ask Beam anything about your code…" placeholderTextColor="#A09DA3"
+          placeholder="Ask a model anything about your code…" placeholderTextColor="#A09DA3"
           style={styles.input} textAlignVertical="top" />
         <View style={styles.actions}>
           <Pressable onPress={onFiles} accessibilityLabel="Attach GitHub file">{I('plus-circle',24,COLORS.muted)}</Pressable>
-          <Pressable onPress={()=>Alert.alert('Provider', 'Beam is the available API provider. ChatGPT subscription sharing requires a separately authorized integration.')}
-            style={styles.model}><Text style={styles.modelText}>{model}</Text>{I('chevron-down',16,COLORS.violet)}</Pressable>
+          <Pressable onPress={()=>setModelPickerOpen(true)} style={styles.model}>
+            <Text numberOfLines={1} style={[styles.modelText,{maxWidth:144}]}>{model.includes('/')?model.split('/')[1]:model}</Text>
+            {I('chevron-down',16,COLORS.violet)}
+          </Pressable>
           <Pressable onPress={onSettings}>{I('shield',21,COLORS.muted)}</Pressable>
           <Pressable onPress={()=>Alert.alert('Dictation', 'Use the native iPhone keyboard microphone to dictate a message.')}>{I('mic',20,COLORS.muted)}</Pressable>
           <Pressable onPress={submit} disabled={thinking||!prompt.trim()} style={[styles.send,thinking&&{opacity:0.55}]}>
@@ -105,6 +109,7 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
+    <ModelPicker visible={modelPickerOpen} onClose={()=>setModelPickerOpen(false)} selected={model} onSelect={setModel}/>
   </View>;
 }
 const styles=StyleSheet.create({

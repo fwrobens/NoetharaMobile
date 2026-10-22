@@ -164,8 +164,9 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
   );
 }
 
-export function RepositoryBrowser({ onBack, onChoose }: {
+export function RepositoryBrowser({ onBack, onChoose, onChooseRepo }: {
   onBack:()=>void;onChoose:(file:SelectedGitHubFile)=>void;
+  onChooseRepo:(repo:{repo:string;branch:string})=>void;
 }) {
   const [repos,setRepos]=useState<Repo[]>([]);
   const [selected,setSelected]=useState<Repo|null>(null);
@@ -196,8 +197,14 @@ export function RepositoryBrowser({ onBack, onChoose }: {
       <Pressable onPress={loadRepos}>{icon('refresh-cw',19)}</Pressable>
     </View>
     <ScrollView contentContainerStyle={styles.scroll}>
-      {selected&&<Text style={styles.repoInfo}>{selected.full_name} / {path||'root'}</Text>}
-      {!selected&&<Note>Select a repository to browse its files and attach one to the AI chat. This is read-only, not a Linux clone.</Note>}
+      {selected&&<>
+        <Text style={styles.repoInfo}>{selected.full_name} / {path||'root'}</Text>
+        <View style={{marginBottom:15}}>
+          <Action dark title="Use entire project with AI" onPress={()=>onChooseRepo({repo:selected.full_name,branch:selected.default_branch})}/>
+          <Text style={[styles.fieldText,{marginTop:8}]}>The assistant will automatically find relevant source files for your questions. Read-only; it won't commit code without approval.</Text>
+        </View>
+      </>}
+      {!selected&&<Note>Select a repository, then choose Use entire project with AI. No individual file selection is required to begin. This uses read-only GitHub access.</Note>}
       {loading&&<ActivityIndicator color={colors.purple}/>}
       {!!message&&<Note>{message}</Note>}
       {!selected ? repos.map(r=><Item key={r.full_name} title={r.full_name}

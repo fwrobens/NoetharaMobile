@@ -102,9 +102,9 @@ Resources:
           }).listen(3000,'127.0.0.1');
           NODE
           cd /opt/noethara
-          pm2 start /opt/noethara/health.mjs --name noethara-health
-          pm2 save
-          env PATH=/usr/bin:$PATH pm2 startup systemd -u ubuntu --hp /home/ubuntu || true
+          sudo -u ubuntu pm2 start /opt/noethara/health.mjs --name noethara-health
+          sudo -u ubuntu pm2 save
+          env PATH=/usr/bin:$PATH pm2 startup systemd -u ubuntu --hp /home/ubuntu
           cat > /etc/nginx/sites-available/noethara <<'NGINX'
           server {
             listen 80 default_server;

@@ -9,13 +9,13 @@ import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
 
 const COLORS = { ink:'#252326',muted:'#88878C',violet:'#7355C7',border:'#E9E6E1' };
-function I({name,size=20,color=COLORS.ink}:{name:React.ComponentProps<typeof Feather>['name'];size?:number;color?:string}) {
-  return <Feather name={name} size={size} color={color}/>;
+function I(name: React.ComponentProps<typeof Feather>['name'], size = 20, color = COLORS.ink) {
+  return <Feather name={name} size={size} color={color} />;
 }
 export function ConnectedChat({
-  onMenu, onSettings, onFiles, latest, attachedFile, onRemoveFile,
+  onMenu, onSettings, onFiles, latest, initialModel, attachedFile, onRemoveFile,
 }:{
-  onMenu:()=>void;onSettings:()=>void;onFiles:()=>void;latest:string;
+  onMenu:()=>void;onSettings:()=>void;onFiles:()=>void;latest:string;initialModel?:string;
   attachedFile:SelectedGitHubFile|null;onRemoveFile:()=>void;
 }) {
   const [messages,setMessages]=useState<ChatEntry[]>(latest?[{role:'user',content:latest}]:[]);
@@ -37,7 +37,7 @@ export function ConnectedChat({
     try {
       await getSession().then(s=>{if(!s)throw Error('Sign in in Settings first.');});
       const id=await persistChat(null,next);setChatId(id);
-      const result=await noetharaAPI.chat(next,attachedFile??undefined,model);
+      const result=await noetharaAPI.chat(next,attachedFile??undefined,initialModel || model);
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
       await persistChat(id,[answer]);

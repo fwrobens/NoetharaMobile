@@ -1,7 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { getPreferredModel, noetharaAPI, savePreferredModel, type AIModel } from '../lib/noetharaBackend';
+import { getSession, getPreferredModel, noetharaAPI, savePreferredModel, type AIModel } from '../lib/noetharaBackend';
+
+const previewIds = [
+  'nvidia/nemotron-3-super-120b-a12b',
+  'nvidia/nemotron-3-ultra-550b-a55b',
+  'nvidia/nemotron-3-nano-30b-a3b',
+  'nvidia/nemotron-3.5-lightning-30b-a3b',
+  'deepseek-ai/deepseek-v4-flash',
+  'qwen/qwen2.5-coder-32b-instruct',
+  'qwen/qwen3-next-80b-a3b-thinking',
+  'meta/llama-3.3-70b-instruct',
+  'microsoft/phi-4-mini-instruct',
+  'openai/gpt-oss-120b',
+  'moonshotai/kimi-k2-thinking',
+  'minimaxai/minimax-m2.5',
+];
+const offlineCatalog: AIModel[] = [
+  { id:'Beam-1.0-501B-A23B', provider:'beam', name:'Beam AI · Free tier' },
+  ...previewIds.map(id=>({ id, provider:'nvidia' as const, name:id.split('/')[1].replace(/[-_]/g,' ') }))
+];
 
 export function ModelPicker({
   visible, onClose, selected, onSelect,
@@ -25,7 +44,14 @@ export function ModelPicker({
       setSource(result.catalogSource);
       setNotice(result.notice);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Model catalog unavailable');
+      const session = await getSession().catch(()=>null);
+      if (!session) {
+        setModels(offlineCatalog);
+        setSource('preview-only');
+        setNotice('Sign in to check live NVIDIA access and send model requests.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Model catalog unavailable');
+      }
     } finally { setLoading(false); }
   };
   useEffect(() => { if (visible) { setQuery(''); void refresh(); } }, [visible]);
@@ -52,7 +78,7 @@ export function ModelPicker({
         {query.length > 0 && <Pressable onPress={()=>setQuery('')}><Feather name="x-circle" size={17} color="#939099" /></Pressable>}
       </View>
       <Text style={styles.description}>Beam and NVIDIA chat models. NVIDIA's free development endpoints have account and model-specific limits.</Text>
-      {!!source && <Text style={styles.catalog}>Catalog: {source === 'nvidia-live-catalog' ? 'NVIDIA live + verified docs' : 'NVIDIA documented models (live listing unavailable)'}</Text>}
+      {!!source && <Text style={styles.catalog}>Catalog: {source === 'nvidia-live-catalog' ? 'NVIDIA live catalog + documented models' : source === 'preview-only' ? 'Preview-only catalog · sign in for live access' : 'NVIDIA documented models (live listing unavailable)'}</Text>}
       {loading && <ActivityIndicator style={{ margin: 20 }} color="#7355C7"/>}
       {!!error && <View style={styles.alert}><Text style={styles.error}>{error}</Text>
         <Pressable onPress={refresh}><Text style={styles.retry}>Try again</Text></Press>
@@ -75,7 +101,7 @@ export function ModelPicker({
             {active && <Feather name="check-circle" size={22} color="#7758C9"/>}
           </Press>;
         }}/>
-      {!!notice && <Text style={styles.bottomNote} numberOfLines={2}>Model availability is checked when you send a request.</Text>}
+      {!!notice && <Text style={styles.bottomNote} numberOfLines={2}>{notice}</Text>}
     </View>
   </Modal>;
 }

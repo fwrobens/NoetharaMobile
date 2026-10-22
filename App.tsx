@@ -597,7 +597,7 @@ function RootApp() {
             onSettings={() => go('settings')} onFiles={() => go('files')}
             latest={lastMessage} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
           {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
-            onChoose={file => { setGithubFile(file); go('chat'); }} />}
+            onChoose={file => { setGithubFile(file); setLastMessage(''); go('chat'); }} />}
           {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
             openRepos={() => go('files')} />}
         </SafeAreaView>

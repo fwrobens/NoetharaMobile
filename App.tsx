@@ -6,6 +6,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   PanResponder,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -24,10 +25,10 @@ import { IntegrationsSettings, RepositoryBrowser, type SelectedGitHubFile } from
 import { ConnectedChat } from './src/components/ConnectedChat';
 import { AuthScreen } from './src/components/AuthScreen';
 import { LocalPlayground } from './src/components/LocalPlayground';
-import { supabase, getSession, getPreferredModel, savePreferredModel, BEAM_ID } from './src/lib/noetharaBackend';
+import { supabase, getSession, getPreferredModel, savePreferredModel, listConversations, recoverPendingOAuthRedirect, handleOAuthRedirect, type ConversationSummary, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
-type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground';
+type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground' | 'terminal';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 type ToolKey = 'ESC' | '+' | 'TAB' | 'CTRL' | 'up' | 'down' | 'left' | 'right' | 'mic' | 'hide';
 
@@ -465,50 +466,59 @@ function FilesPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boolean; onClose: () => void; onNavigate: (p: Page) => void; page: Page }) {
+function NavigationDrawer({
+  progress, active, onClose, onNavigate, page, chats, onOpenChat, onNewChat, onTerminal
+}: {
+  progress: Animated.Value; active:boolean; onClose:()=>void; onNavigate:(p:Page)=>void; page:Page;
+  chats: ConversationSummary[]; onOpenChat:(id:string)=>void; onNewChat:()=>void; onTerminal:()=>void;
+}) {
   const { width } = useWindowDimensions();
-  const drawerWidth = Math.min(width * 0.79, 338);
-  const slide = useRef(new Animated.Value(-400)).current;
-  const backdrop = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(slide, {
-        toValue: visible ? 0 : -400,
-        speed: visible ? 19 : 22,
-        bounciness: visible ? 3 : 0,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdrop, { toValue: visible ? 1 : 0, duration: 255, useNativeDriver: true }),
-    ]).start();
-  }, [visible, slide, backdrop]);
+  const drawerWidth = Math.min(width*0.79,338);
+  const offset = progress.interpolate({inputRange:[0,1],outputRange:[-drawerWidth,0],extrapolate:'clamp'});
+  const backdropOpacity = progress.interpolate({inputRange:[0,1],outputRange:[0,0.34],extrapolate:'clamp'});
   return (
-    <View pointerEvents={visible ? 'auto' : 'none'} style={styles.drawerOverlay}>
-      <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: backdrop, backgroundColor: 'rgba(15, 15, 17, 0.32)' }]}>
-        <Pressable onPress={onClose} style={StyleSheet.absoluteFillObject} accessibilityLabel="Close menu" />
+    <View pointerEvents={active?'auto':'none'} style={styles.drawerOverlay}>
+      <Animated.View style={[StyleSheet.absoluteFillObject,{opacity:backdropOpacity,backgroundColor:'#101012'}]}>
+        <Pressable accessibilityLabel="Close menu" onPress={onClose} style={StyleSheet.absoluteFillObject}/>
       </Animated.View>
-      <Animated.View style={[styles.drawerShell, { width: drawerWidth, transform: [{ translateX: slide }] }]}>
-        <LinearGradient colors={['#FEFDFC', '#FCFBF9', '#F9F7F4']} style={StyleSheet.absoluteFillObject} />
-        <SafeAreaView style={styles.fill} edges={['top', 'bottom']}>
-          <View style={styles.drawerBrand}><Text style={styles.drawerBrandText}>Noethara Dev</Text><View style={styles.liveDot} /></View>
-          <View style={{ gap: 8, marginTop: 28 }}>
+      <Animated.View style={[styles.drawerShell,{width:drawerWidth,transform:[{translateX:offset}]}]}>
+        <LinearGradient colors={['#FEFDFC','#FCFBF9','#F9F7F4']} style={StyleSheet.absoluteFillObject}/>
+        <SafeAreaView style={styles.fill} edges={['top','bottom']}>
+          <View style={styles.drawerBrand}><Text style={styles.drawerBrandText}>Noethara Dev</Text><View style={styles.liveDot}/></View>
+          <View style={{gap:4,marginTop:20}}>
             {([
-              { label: 'Terminals', icon: 'terminal' as FeatherName, page: 'terminals' as Page },
-              { label: 'Code', icon: 'message-circle' as FeatherName, page: 'chat' as Page },
-              { label: 'Files', icon: 'folder' as FeatherName, page: 'files' as Page },
-              { label: 'Playground', icon: 'code' as FeatherName, page: 'playground' as Page },
-            ]).map(item => <Tap key={item.page} onPress={() => onNavigate(item.page)}
-              style={[styles.drawerNavItem, page === item.page && styles.drawerSelected]}>
-                <Icon name={item.icon} size={24} /><Text style={styles.drawerNavText}>{item.label}</Text>
-              </Tap>)}
+              {label:'Terminals',icon:'terminal' as FeatherName,page:'terminals' as Page},
+              {label:'Code',icon:'message-circle' as FeatherName,page:'chat' as Page},
+              {label:'Files',icon:'folder' as FeatherName,page:'files' as Page},
+              {label:'Playground',icon:'code' as FeatherName,page:'playground' as Page},
+            ]).map(item=><Tap key={item.page} onPress={()=>onNavigate(item.page)}
+              style={[styles.drawerNavItem,page===item.page&&styles.drawerSelected]}>
+              <Icon name={item.icon} size={22}/><Text style={[styles.drawerNavText,{fontSize:17}]}>{item.label}</Text>
+            </Tap>)}
           </View>
-          <Text style={styles.drawerSubheading}>Open terminals</Text>
-          <Tap style={styles.drawerTerminal} onPress={() => onNavigate('workspace')}>
-            <Icon name="monitor" size={20}/><Text style={styles.drawerNavText}>Terminal 1</Text>
+          <Text style={[styles.drawerSubheading,{marginTop:19,marginBottom:10}]}>Open terminals</Text>
+          <Tap onPress={onTerminal} style={styles.drawerTerminal}>
+            <Icon name="monitor" size={20}/><Text style={[styles.drawerNavText,{fontSize:16}]}>OpenCode CLI</Text>
+            <Icon name="chevron-right" size={16} color={COLORS.muted}/>
           </Tap>
-          <View style={{ flex: 1 }} />
+          <View style={{flex:1,minHeight:80,marginTop:16}}>
+            <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingRight:22}}>
+              <Text style={[styles.drawerSubheading,{marginTop:6,marginBottom:12}]}>Recent chats</Text>
+              <Tap onPress={onNewChat} style={{padding:8}}><Icon name="plus" size={20}/></Tap>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{paddingHorizontal:14,paddingBottom:15}}>
+              {chats.length===0&&<Text style={{color:'#969199',fontSize:12,paddingHorizontal:12,paddingVertical:9}}>Your conversations appear here.</Text>}
+              {chats.map(chat=><Tap onPress={()=>onOpenChat(chat.id)} key={chat.id}
+                style={{paddingHorizontal:12,paddingVertical:13,borderRadius:12,flexDirection:'row',alignItems:'center',gap:12}}>
+                <Icon name="message-square" size={16} color="#756B7C"/>
+                <Text numberOfLines={1} style={{fontSize:14,color:'#4A4750',flex:1}}>{chat.title||'New chat'}</Text>
+              </Tap>)}
+            </ScrollView>
+          </View>
           <View style={styles.drawerBottom}>
-            <Tap onPress={() => onNavigate('settings')} style={styles.settingsRound}><Icon name="settings" size={24} /></Tap>
-            <Tap onPress={() => onNavigate('chat')} style={styles.drawerNew}><Icon name="plus" size={24} color="white"/><Text style={styles.drawerNewText}>New</Text></Tap>
+            <Tap onPress={()=>onNavigate('settings')} style={styles.settingsRound}><Icon name="settings" size={24}/></Tap>
+            <Tap onPress={onNewChat} style={styles.drawerNew}><Icon name="plus" size={24} color="#FFFFFF"/><Text style={styles.drawerNewText}>New chat</Text></Tap>
           </View>
         </SafeAreaView>
       </Animated.View>
@@ -517,141 +527,184 @@ function NavigationDrawer({ visible, onClose, onNavigate, page }: { visible: boo
 }
 
 function RootApp() {
-  const [page, setPage] = useState<Page>('workspace');
-  const [authReady, setAuthReady] = useState(false);
-  const [signedIn, setSignedIn] = useState(false);
-  const [guestPreview, setGuestPreview] = useState(false);
-  const [showHomeModels, setShowHomeModels] = useState(false);
-  useEffect(() => {
-    let current = true;
-    void getSession().then(session => {
-      if (current) { setSignedIn(Boolean(session)); setAuthReady(true); }
-    }).catch(() => { if (current) setAuthReady(true); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (current) {
-        setSignedIn(Boolean(session));
-        if (session) setGuestPreview(false);
+  const [page,setPage]=useState<Page>('workspace');
+  const [authReady,setAuthReady]=useState(false);
+  const [signedIn,setSignedIn]=useState(false);
+  const [guestPreview,setGuestPreview]=useState(false);
+  const [showHomeModels,setShowHomeModels]=useState(false);
+  const [keyboardVisible,setKeyboardVisible]=useState(false);
+  const [prompt,setPrompt]=useState('');
+  const [mode,setMode]=useState('Build');
+  const [provider,setProvider]=useState(BEAM_ID);
+  const [quality,setQuality]=useState('max');
+  const [lastMessage,setLastMessage]=useState('');
+  const [githubFile,setGithubFile]=useState<SelectedGitHubFile|null>(null);
+  const [selection,setSelection]=useState({start:0,end:0});
+  const [chats,setChats]=useState<ConversationSummary[]>([]);
+  const [activeChatId,setActiveChatId]=useState<string|null>(null);
+  const [chatVersion,setChatVersion]=useState(0);
+  const [terminalAgent,setTerminalAgent]=useState<'opencode'|'codex'|'claude'>('opencode');
+  const inputRef=useRef<TextInput>(null);
+  const {width:screenWidth}=useWindowDimensions();
+  const drawerWidth=Math.min(screenWidth*0.79,338);
+  const drawerProgress=useRef(new Animated.Value(0)).current;
+  const [drawerOpen,setDrawerOpen]=useState(false);
+  const [drawerDragging,setDrawerDragging]=useState(false);
+  const drawerActive=drawerOpen||drawerDragging;
+  const settleDrawer=(open:boolean)=>{
+    setDrawerOpen(open);
+    setDrawerDragging(false);
+    Animated.spring(drawerProgress,{toValue:open?1:0,useNativeDriver:true,
+      speed:24,bounciness:0,overshootClamping:true}).start();
+  };
+  const refreshChats=()=>{
+    if(!signedIn)return;
+    void listConversations().then(setChats).catch(()=>{});
+  };
+  useEffect(()=>{
+    let active=true;
+    void recoverPendingOAuthRedirect()
+      .catch(()=>null)
+      .then(()=>getSession())
+      .then(session=>{if(active){setSignedIn(!!session);setAuthReady(true);}})
+      .catch(()=>{if(active)setAuthReady(true);});
+    const subscription=Linking.addEventListener('url',({url})=>{
+      if(/[?&#](code|access_token|error)=/.test(url)){
+        void handleOAuthRedirect(url)
+          .then(session=>{if(session&&active){setSignedIn(true);setGuestPreview(false);}})
+          .catch(()=>{});
       }
     });
-    return () => { current = false; listener.subscription.unsubscribe(); };
-  }, []);
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [prompt, setPrompt] = useState('');
-  const [mode, setMode] = useState('Build');
-  const [provider, setProvider] = useState(BEAM_ID);
-  useEffect(() => { void getPreferredModel().then(setProvider).catch(()=>{}); }, []);
-  const [quality, setQuality] = useState('max');
-  const [lastMessage, setLastMessage] = useState('');
-  const [githubFile, setGithubFile] = useState<SelectedGitHubFile | null>(null);
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
-  const inputRef = useRef<TextInput>(null);
-  const { width: screenWidth } = useWindowDimensions();
-  const gestures = React.useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponderCapture: (_evt, g) => {
-      const horizontal = Math.abs(g.dx) > 15 && Math.abs(g.dx) > Math.abs(g.dy) * 1.35;
-      if (!horizontal) return false;
-      if (drawerVisible) return g.dx < -15 && g.x0 < Math.min(screenWidth * 0.79, 338);
-      return !keyboardVisible && g.dx > 15 && g.x0 <= 35;
+    const {data:authListener}=supabase.auth.onAuthStateChange((_event,session)=>{
+      if(active){setSignedIn(!!session);if(session)setGuestPreview(false);}
+    });
+    return()=>{active=false;subscription.remove();authListener.subscription.unsubscribe();};
+  },[]);
+  useEffect(()=>{void getPreferredModel().then(setProvider).catch(()=>{});},[]);
+  useEffect(()=>{if(signedIn)refreshChats();else setChats([]);},[signedIn]);
+  useEffect(()=>{
+    const show=Keyboard.addListener('keyboardDidShow',()=>setKeyboardVisible(true));
+    const hide=Keyboard.addListener('keyboardDidHide',()=>setKeyboardVisible(false));
+    return()=>{show.remove();hide.remove();};
+  },[]);
+  const gestures=React.useMemo(()=>PanResponder.create({
+    onMoveShouldSetPanResponderCapture:(_e,g)=>{
+      if(keyboardVisible)return false;
+      const sideways=Math.abs(g.dx)>6&&Math.abs(g.dx)>Math.abs(g.dy)*1.2;
+      if(!sideways)return false;
+      if(drawerOpen)return g.dx<0&&g.x0<drawerWidth+12;
+      return g.dx>0&&g.x0<45;
     },
-    onPanResponderRelease: (_evt, g) => {
-      if (drawerVisible) {
-        if (g.dx < -62 || g.vx < -0.5) setDrawerVisible(false);
-      } else if (!keyboardVisible && (g.dx > 62 || g.vx > 0.5)) {
-        Keyboard.dismiss();
-        setDrawerVisible(true);
-      }
+    onPanResponderGrant:()=>{
+      drawerProgress.stopAnimation();
+      setDrawerDragging(true);
     },
-    onPanResponderTerminationRequest: () => true,
-  }), [drawerVisible, keyboardVisible, screenWidth]);
-  const openDrawer = () => {
-    Keyboard.dismiss();
-    setDrawerVisible(true);
-  };
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { show.remove(); hide.remove(); };
-  }, []);
-  const go = (next: Page) => {
-    Keyboard.dismiss();
-    setKeyboardVisible(false);
-    setDrawerVisible(false);
+    onPanResponderMove:(_e,g)=>{
+      const value=drawerOpen?1+g.dx/drawerWidth:g.dx/drawerWidth;
+      drawerProgress.setValue(Math.max(0,Math.min(1,value)));
+    },
+    onPanResponderRelease:(_e,g)=>{
+      const amount=drawerOpen?1+g.dx/drawerWidth:g.dx/drawerWidth;
+      const shouldOpen=drawerOpen
+        ? amount>0.56 && g.vx> -0.5
+        : amount>0.35 || g.vx>0.55;
+      settleDrawer(shouldOpen);
+    },
+    onPanResponderTerminate:()=>settleDrawer(drawerOpen),
+    onPanResponderTerminationRequest:()=>true,
+  }),[drawerOpen,keyboardVisible,drawerWidth,drawerProgress]);
+  const openDrawer=()=>{Keyboard.dismiss();refreshChats();settleDrawer(true);};
+  const closeDrawer=()=>settleDrawer(false);
+  const go=(next:Page)=>{
+    Keyboard.dismiss();setKeyboardVisible(false);
+    closeDrawer();
     setPage(next);
   };
-  const send = () => {
-    if (!prompt.trim()) return;
+  const newChat=()=>{
+    setActiveChatId(null);setLastMessage('');setChatVersion(v=>v+1);
+    go('chat');
+  };
+  const openHistory=(id:string)=>{
+    setActiveChatId(id);setLastMessage('');setChatVersion(v=>v+1);
+    go('chat');
+  };
+  const send=()=>{
+    if(!prompt.trim())return;
+    setActiveChatId(null);
     setLastMessage(prompt.trim());
+    setChatVersion(v=>v+1);
     setPrompt('');
-    Keyboard.dismiss();
-    setKeyboardVisible(false);
+    Keyboard.dismiss();setKeyboardVisible(false);
     setPage('chat');
   };
-  const tool = (key: ToolKey) => {
-    if (key === 'hide' || key === 'ESC') { Keyboard.dismiss(); inputRef.current?.blur(); return; }
-    if (key === 'mic') { Alert.alert('Dictation', 'Tap the microphone on the iPhone keyboard to dictate text.'); return; }
-    if (key === 'CTRL') { Alert.alert('Ctrl', 'On mobile, use the shortcut buttons or a hardware keyboard for modifier-key combinations.'); return; }
-    if (key === 'up' || key === 'down' || key === 'left' || key === 'right') {
-      const delta = key === 'left' || key === 'up' ? -1 : 1;
-      const position = Math.max(0, Math.min(prompt.length, selection.start + delta));
-      setSelection({ start: position, end: position }); inputRef.current?.focus(); return;
-    }
-    const insert = key === 'TAB' ? '  ' : '+';
-    const start = Math.min(selection.start, selection.end);
-    const end = Math.max(selection.start, selection.end);
-    setPrompt(prompt.slice(0, start) + insert + prompt.slice(end));
-    const pos = start + insert.length;
-    setSelection({ start: pos, end: pos });
-    inputRef.current?.focus();
+  const openTerminal=(agent:'opencode'|'codex'|'claude'='opencode')=>{
+    setTerminalAgent(agent);go('terminal');
   };
-  if (!authReady) return <View style={[styles.fill,{backgroundColor:'#FCFAF7',alignItems:'center',justifyContent:'center'}]}>
-    <Text style={{color:'#8165C9',fontWeight:'600'}}>Loading Noethara Dev…</Text>
+  const tool=(key:ToolKey)=>{
+    if(key==='hide'||key==='ESC'){Keyboard.dismiss();inputRef.current?.blur();return;}
+    if(key==='mic'){Alert.alert('Dictation','Use the microphone on the iPhone keyboard.');return;}
+    if(key==='CTRL'){Alert.alert('CTRL','Hardware keyboard modifiers are supported by iOS.');return;}
+    if(key==='up'||key==='down'||key==='left'||key==='right'){
+      const delta=(key==='left'||key==='up')?-1:1;
+      const pos=Math.max(0,Math.min(prompt.length,selection.start+delta));
+      setSelection({start:pos,end:pos});inputRef.current?.focus();return;
+    }
+    const insert=key==='TAB'?'  ':'+';
+    const start=Math.min(selection.start,selection.end);
+    const end=Math.max(selection.start,selection.end);
+    setPrompt(prompt.slice(0,start)+insert+prompt.slice(end));
+    const pos=start+insert.length;
+    setSelection({start:pos,end:pos});inputRef.current?.focus();
+  };
+  if(!authReady)return <View style={[styles.fill,{backgroundColor:'#FCFAF7',alignItems:'center',justifyContent:'center'}]}>
+    <Text style={{color:'#8165C9'}}>Loading Noethara Dev…</Text>
   </View>;
-  if (!signedIn && !guestPreview) return (
-    <View style={{flex:1,backgroundColor:'#FCFAF7'}}>
-      <StatusBar style="dark"/>
-      <SafeAreaView style={styles.fill} edges={['top','bottom']}>
-        <AuthScreen onGuest={() => setGuestPreview(true)}/>
-      </SafeAreaView>
-    </View>
-  );
+  if(!signedIn&&!guestPreview)return <View style={{flex:1,backgroundColor:'#FCFAF7'}}>
+    <StatusBar style="dark"/>
+    <SafeAreaView style={styles.fill} edges={['top','bottom']}>
+      <AuthScreen onGuest={()=>setGuestPreview(true)}/>
+    </SafeAreaView>
+  </View>;
   return (
     <View style={styles.fill} {...gestures.panHandlers}>
-      <LinearGradient colors={['#FCFAF7', '#FBF9F6', '#F7F5F2']} style={styles.fill}>
-      <StatusBar style="dark" />
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <SafeAreaView style={styles.fill} edges={keyboardVisible ? ['top'] : ['top', 'bottom']}>
-          {page === 'workspace' && <Workspace openMenu={openDrawer} prompt={prompt} setPrompt={setPrompt}
-            inputRef={inputRef} selection={selection} setSelection={setSelection}
-            keyboardVisible={keyboardVisible} setKeyboardVisible={setKeyboardVisible}
-            send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
-            setProvider={setProvider} openModelPicker={() => setShowHomeModels(true)} quality={quality} setQuality={setQuality} />}
-          {page === 'terminals' && <TerminalsPage onBack={() => go('workspace')} />}
-          {page === 'chat' && <ConnectedChat key={lastMessage} onMenu={openDrawer}
-            onSettings={() => go('settings')} onFiles={() => go('files')}
-            latest={lastMessage} initialModel={provider} attachedFile={githubFile} onRemoveFile={() => setGithubFile(null)} />}
-          {page === 'files' && <RepositoryBrowser onBack={() => go('workspace')}
-            onChoose={file => { setGithubFile(file); setLastMessage(''); go('chat'); }} />}
-          {page === 'playground' && <LocalPlayground onBack={() => go('workspace')} onChat={(fileName, content) => {
-            if (!signedIn) {
-              Alert.alert('Sign in required', 'Sign in in Settings before sending code to a model.');
-              go('settings');
-              return;
-            }
-            setLastMessage('Review this local code file: ' + fileName + '\\n\\n' + content.slice(0,9000));
-            go('chat');
-          }}/>}
-          {page === 'settings' && <IntegrationsSettings onBack={() => go('workspace')}
-            openRepos={() => go('files')} />}
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-      <NavigationDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} onNavigate={go} page={page} />
-      <ModelPicker visible={showHomeModels} onClose={() => setShowHomeModels(false)}
-        selected={provider} onSelect={value => { setProvider(value); void savePreferredModel(value); }} />
+      <LinearGradient colors={['#FCFAF7','#FBF9F6','#F7F5F2']} style={styles.fill}>
+        <StatusBar style="dark"/>
+        <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS==='ios'?'padding':undefined}>
+          <SafeAreaView style={styles.fill} edges={keyboardVisible?['top']:['top','bottom']}>
+            {page==='workspace'&&<Workspace openMenu={openDrawer} prompt={prompt} setPrompt={setPrompt}
+              inputRef={inputRef} selection={selection} setSelection={setSelection}
+              keyboardVisible={keyboardVisible} setKeyboardVisible={setKeyboardVisible}
+              send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
+              setProvider={setProvider} openModelPicker={()=>setShowHomeModels(true)}
+              quality={quality} setQuality={setQuality}/>}
+            {page==='terminals'&&<TerminalsPage onBack={()=>go('workspace')} onAgent={openTerminal}/>}
+            {page==='terminal'&&<RemoteTerminal agent={terminalAgent} onBack={()=>go('terminals')}/>}
+            {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
+              onSettings={()=>go('settings')} onFiles={()=>go('files')}
+              latest={lastMessage} conversationId={activeChatId}
+              onChatSaved={id=>{setActiveChatId(id);refreshChats();}}
+              initialModel={provider} attachedFile={githubFile} onRemoveFile={()=>setGithubFile(null)}/>}
+            {page==='files'&&<RepositoryBrowser onBack={()=>go('workspace')}
+              onChoose={file=>{setGithubFile(file);newChat();}}/>}
+            {page==='playground'&&<LocalPlayground onBack={()=>go('workspace')} onChat={(fileName,content)=>{
+              if(!signedIn){Alert.alert('Sign in required','Sign in before sending code to a model.');go('settings');return;}
+              setActiveChatId(null);
+              setLastMessage('Review this local code file: '+fileName+'\n\n'+content.slice(0,9000));
+              setChatVersion(v=>v+1);go('chat');
+            }}/>}
+            {page==='settings'&&<IntegrationsSettings onBack={()=>go('workspace')} openRepos={()=>go('files')}/>}
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+        <NavigationDrawer progress={drawerProgress} active={drawerActive} page={page}
+          chats={chats} onClose={closeDrawer} onNavigate={go}
+          onOpenChat={openHistory} onNewChat={newChat} onTerminal={()=>openTerminal('opencode')}/>
+        <ModelPicker visible={showHomeModels} onClose={()=>setShowHomeModels(false)}
+          selected={provider} onSelect={value=>{setProvider(value);void savePreferredModel(value);}}/>
       </LinearGradient>
     </View>
   );
 }
+
 export default function App() {
   return <SafeAreaProvider><RootApp /></SafeAreaProvider>;
 }

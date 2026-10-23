@@ -48,61 +48,98 @@ export function ConnectedChat({
   const [thinking,setThinking]=useState(false);
   const [status,setStatus]=useState('');
   const [isError,setIsError]=useState(false);
+  const [loadingHistory,setLoadingHistory]=useState(Boolean(conversationId));
   const {model,setModel}=useModelPreference();
   const [modelPickerOpen,setModelPickerOpen]=useState(false);
   const [chatId,setChatId]=useState<string|null>(conversationId??null);
   const scrollRef=useRef<ScrollView>(null);
   const didStart=useRef(false);
+  const mounted=useRef(true);
   useEffect(()=>{
-    if(didStart.current)return;
-    didStart.current=true;
-    if(conversationId) {
+    mounted.current=true;
+    // A specific conversation is authoritative; never show a previous thread
+    // while loading a selected conversation from Supabase.
+    if(conversationId){
+      setLoadingHistory(true);
+      setMessages([]);
+      setStatus('');
+      setChatId(conversationId);
       void loadConversation(conversationId)
-        .then(setMessages)
-        .catch(err=>{setIsError(true);setStatus(err instanceof Error?err.message:'Could not load history');});
-    } else if(latest.trim()) {
+        .then(history=>{if(mounted.current){setMessages(history);setLoadingHistory(false);}})
+        .catch(err=>{if(mounted.current){
+          setLoadingHistory(false);
+          output(err instanceof Error?err.message:'Could not load conversation',true);
+        }});
+    }else if(latest.trim() && !didStart.current){
+      didStart.current=true;
       void sendInitial(latest);
     }
-  },[]);
-  const output = (message:string, error:boolean) => {setStatus(message);setIsError(error);};
-  async function sendInitial(first:string) {
+    return ()=>{mounted.current=false;};
+  },[conversationId]);
+
+  const output=(message:string,error:boolean)=>{
+    if(mounted.current){setStatus(message);setIsError(error);}
+  };
+  async function buildRequest(next:ChatEntry[], instruction:string, modelId:string) {
+    let contextWarning='';
+    let history=next.slice(-18);
+    if(attachedProject){
+      try {
+        const project=await readProjectContext(attachedProject,instruction);
+        history=[{role:'user',content:project.text.slice(0,13000)},...history];
+      } catch(e){
+        // GitHub authorization/network trouble must not disable normal LLM chat.
+        contextWarning='GitHub project context unavailable; response may not reflect repository files. ';
+        history=[{role:'user',content:'An attached GitHub project could not be read. Do not pretend you inspected its files. Explain any limitation if the user requests repository-specific information.'},...history];
+      }
+    }
+    const result=await noetharaAPI.chat(history,attachedFile??undefined,modelId);
+    return {result,contextWarning};
+  }
+  async function saveMessage(id:string|null,entry:ChatEntry):Promise<string|null>{
+    try{
+      const nextId=await persistChat(id,[entry]);
+      if(mounted.current){setChatId(nextId);onChatSaved?.(nextId);}
+      return nextId;
+    }catch(e){
+      output('Chat history could not be saved: '+(e instanceof Error?e.message:'Unknown error'),true);
+      return id;
+    }
+  }
+  async function sendInitial(first:string){
     const next:ChatEntry[]=[{role:'user',content:first}];
     setThinking(true);output('',false);
-    try {
+    const id=await saveMessage(null,next[0]);
+    try{
       const session=await getSession();
       if(!session)throw Error('Sign in before sending prompts.');
-      const id=await persistChat(null,next);
-      setChatId(id);onChatSaved?.(id);
-      const context=attachedProject?await readProjectContext(attachedProject,first):null;
-      const request=context?[{role:'user' as const,content:context.text},...next]:next;
-      const result=await noetharaAPI.chat(request,attachedFile??undefined,initialModel||model);
+      const {result,contextWarning}=await buildRequest(next,first,initialModel||model);
+      if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
-      await persistChat(id,[answer]);
-      onChatSaved?.(id);
-      output((result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':'')),false);
-    }catch(err){output(err instanceof Error?err.message:'Request failed',true);}
-    finally{setThinking(false);}
+      if(id)await saveMessage(id,answer);
+      output(contextWarning+result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':''),false);
+    }catch(err){
+      output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
+    }finally{if(mounted.current)setThinking(false);}
   }
-  async function submit() {
+  async function submit(){
     const text=prompt.trim();
-    if(!text||thinking)return;
-    const next:ChatEntry[]=[...messages,{role:'user',content:text}];
+    if(!text||thinking||loadingHistory)return;
+    const userEntry:ChatEntry={role:'user',content:text};
+    const next:ChatEntry[]=[...messages,userEntry];
     setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);output('',false);
-    try {
-      const id=await persistChat(chatId,[{role:'user',content:text}]);
-      setChatId(id);onChatSaved?.(id);
-      const projectContext=attachedProject?await readProjectContext(attachedProject,text):null;
-      const request=projectContext?[{role:'user' as const,content:projectContext.text},...next.slice(-18)]:next.slice(-20);
-      const result=await noetharaAPI.chat(request,attachedFile??undefined,model);
+    const id=await saveMessage(chatId,userEntry);
+    try{
+      const {result,contextWarning}=await buildRequest(next,text,model);
+      if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages(prev=>[...prev,answer]);
-      await persistChat(id,[answer]);
-      onChatSaved?.(id);
-      output(result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':''),false);
-    } catch(err) {
+      if(id)await saveMessage(id,answer);
+      output(contextWarning+result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':''),false);
+    }catch(err){
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
-    } finally {setThinking(false);}
+    }finally{if(mounted.current)setThinking(false);}
   }
   return <View style={styles.root}>
     <View style={styles.header}>
@@ -112,7 +149,8 @@ export function ConnectedChat({
     </View>
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.chatContent}
       onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:true})}>
-      {!messages.length&&<View style={styles.empty}>
+      {loadingHistory&&<View style={{alignItems:'center',paddingVertical:40,gap:12}}><ActivityIndicator color={PURPLE}/><Text style={{color:MUTED}}>Loading conversation…</Text></View>}
+      {!loadingHistory&&!messages.length&&<View style={styles.empty}>
         <View style={styles.emptyIcon}>{Icon('terminal',34,PURPLE)}</View>
         <Text style={styles.emptyTitle}>What are we building?</Text>
         <Text style={styles.emptyDescription}>A quieter space to think, write code and review projects with Beam or NVIDIA.</Text>

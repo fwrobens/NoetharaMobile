@@ -4,12 +4,12 @@
 # Never paste Supabase access tokens, Cloudflare tunnel tokens, or SSH keys into chat.
 set -Eeuo pipefail
 trap 'echo "[Noethara] Setup stopped at line $LINENO. Review the error above." >&2' ERR
-[[ "$(id -un)" == "ubuntu" ]] || { echo 'Run as ubuntu, not root.' >&2;exit 1; }
+[[ "$(id -un)" == "ubuntu" ]] || { echo 'Run as ubuntu, not root.' >&2; exit 1; }
 . /etc/os-release
-[[ "$ID" == ubuntu ]] || {echo 'Expected Ubuntu.' >&2;exit 1;}
-command -v pm2 >/dev/null || { echo 'Install PM2 before setup.' >&2;exit 1;}
-command -v node >/dev/null || { echo 'Install Node.js before setup.' >&2;exit 1;}
-command -v tmux >/dev/null || { echo 'Install tmux before setup.' >&2;exit 1;}
+[[ "$ID" == ubuntu ]] || { echo 'Expected Ubuntu.' >&2; exit 1; }
+command -v pm2 >/dev/null || { echo 'Install PM2 before setup.' >&2; exit 1; }
+command -v node >/dev/null || { echo 'Install Node.js before setup.' >&2; exit 1; }
+command -v tmux >/dev/null || { echo 'Install tmux before setup.' >&2; exit 1; }
 if [[ -d "$HOME/NoetharaMobile/.git" ]]; then
   REPO="$HOME/NoetharaMobile"
 elif [[ -d "$HOME/noetharamobile/.git" ]]; then
@@ -58,8 +58,13 @@ pm2 save
 
 printf '\nChecking private gateway startup...\n'
 sleep 2
-pm2 describe noethara-terminal | head -n 25
-curl --fail --silent --show-error --max-time 5 -o /dev/null -w 'Unauthenticated /status HTTP %{http_code} (expected 401)\n' http://127.0.0.1:8789/status
+pm2 describe noethara-terminal
+HTTP_STATUS=$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8789/status)
+printf 'Unauthenticated /status HTTP %s (expected 401)\n' "$HTTP_STATUS"
+if [[ "$HTTP_STATUS" != 401 ]]; then
+  echo 'Security check failed: unauthenticated gateway must return HTTP 401. Stopping.' >&2
+  exit 1
+fi
 echo 'Installing Cloudflare Tunnel connector (not opening a public port)...'
 if ! command -v cloudflared >/dev/null 2>&1; then
   curl -fsSL -o /tmp/noethara-cloudflared.deb \
@@ -71,7 +76,7 @@ printf '\nOpen Cloudflare Zero Trust -> Networks -> Tunnels -> noethara-terminal
 printf 'The tunnel token stays on this EC2 machine, not in the Expo app.\n'
 read -r -s -p 'Cloudflare Tunnel connector token (hidden): ' TUNNEL_TOKEN
 printf '\n'
-[[ -n "$TUNNEL_TOKEN" ]] || {echo 'Tunnel token required.' >&2;exit 1;}
+[[ -n "$TUNNEL_TOKEN" ]] || { echo 'Tunnel token required.' >&2; exit 1; }
 if systemctl is-enabled cloudflared >/dev/null 2>&1;then
   echo 'Cloudflared service already exists; leaving its credentials unchanged.'
 else
@@ -79,7 +84,7 @@ else
 fi
 unset TUNNEL_TOKEN
 sudo systemctl enable --now cloudflared
-sudo systemctl --no-pager status cloudflared | head -n 18
+sudo systemctl --no-pager status cloudflared
 printf '\nIMPORTANT: If Nginx is exposing port 8789 over public HTTP/80, disable that old proxy.\n'
 if sudo nginx -T 2>/dev/null | grep -Eq 'proxy_pass[[:space:]]+http://127[.]0[.]0[.]1:8789'; then
   echo 'WARNING: Detected a public Nginx terminal reverse proxy. Restrict inbound port 80 in AWS immediately and remove that proxy.' >&2

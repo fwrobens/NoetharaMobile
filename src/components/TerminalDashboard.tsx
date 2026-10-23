@@ -1,143 +1,157 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import * as SecureStore from 'expo-secure-store';
-import { LinearGradient } from 'expo-linear-gradient';
+import { getSession } from '../lib/noetharaBackend';
 
 type Agent='opencode'|'codex'|'claude';
-const agents: Array<{
-  id:Agent; title:string; tag:string; description:string;
-  icon:React.ComponentProps<typeof Feather>['name']; accent:string; surface:string;
-}>=[
-  {id:'opencode',title:'OpenCode',tag:'Coding workspace',description:'Terminal-first open-source coding agent',icon:'command',accent:'#7B60C4',surface:'#F1ECFB'},
-  {id:'codex',title:'Codex',tag:'Code agent',description:'Work with your repository from the CLI',icon:'terminal',accent:'#397A6B',surface:'#EAF4EF'},
-  {id:'claude',title:'Claude Code',tag:'Developer agent',description:'Explore, edit and review projects',icon:'aperture',accent:'#C68565',surface:'#F9EFEA'},
+type State='checking'|'awake'|'offline';
+const agents: Array<{id:Agent;title:string;description:string;
+  symbol:React.ComponentProps<typeof Feather>['name'];color:string}> = [
+  {id:'claude',title:'Claude Code',description:'Agent CLI',symbol:'sun',color:'#DA8864'},
+  {id:'codex',title:'Codex',description:'Code CLI',symbol:'terminal',color:'#8B91FC'},
+  {id:'opencode',title:'OpenCode',description:'Open-source CLI',symbol:'code',color:'#B6A4ED'},
 ];
-const Icon=({name,size=20,color='#28272C'}:{
+const Icon=({name,size=20,color='#F1F0F1'}:{
   name:React.ComponentProps<typeof Feather>['name'];size?:number;color?:string;
 })=><Feather name={name} size={size} color={color}/>;
+const HOST='https://terminal.noethara.cloud';
 export function TerminalDashboard({onBack,onAgent}:{
   onBack:()=>void;onAgent:(agent:Agent)=>void;
-}){
-  const [configured,setConfigured]=useState(false);
-  useEffect(()=>{
-    let active=true;
-    Promise.all([
-      SecureStore.getItemAsync('noethara-terminal-gateway-url'),
-      SecureStore.getItemAsync('noethara-terminal-gateway-token')
-    ]).then(([url,token])=>{if(active)setConfigured(!!(url&&token));}).catch(()=>{});
-    return()=>{active=false;};
-  },[]);
-  return <LinearGradient colors={['#FCFAF7','#FAF8F5','#F6F3EF']} style={styles.root}>
+}) {
+  const [state,setState]=useState<State>('checking');
+  const [message,setMessage]=useState('');
+  async function refresh(){
+    setState('checking');setMessage('');
+    try{
+      const session=await getSession();
+      if(!session?.access_token){setMessage('Sign in to access your Noethara Linux workspace.');setState('offline');return;}
+      const abort=new AbortController();
+      const timeout=setTimeout(()=>abort.abort(),7000);
+      try {
+        const r=await fetch(HOST+'/status',{
+          headers:{authorization:'Bearer '+session.access_token},
+          signal:abort.signal,
+        });
+        if(r.ok){setState('awake');return;}
+        setMessage(r.status===401?'Your account is not authorized for this workspace.':
+          'The Linux workspace is not available yet.');
+      } finally {clearTimeout(timeout);}
+    }catch{
+      setMessage('The managed Linux server is not reachable yet.');
+    }
+    setState('offline');
+  }
+  useEffect(()=>{void refresh();},[]);
+  return <View style={styles.root}>
     <View style={styles.header}>
-      <Pressable accessibilityLabel="Go back" onPress={onBack} style={styles.back}>
-        <Icon name="arrow-left" size={24}/>
+      <Pressable onPress={onBack} accessibilityLabel="Back" style={styles.topControl}>
+        <Icon name="chevron-down" size={25}/>
       </Pressable>
       <Text style={styles.headerTitle}>Terminals</Text>
-      <View style={styles.headerRight}><View style={styles.greenDot}/><Text style={styles.headerRightText}>NOETHARA</Text></View>
+      <Pressable onPress={()=>void refresh()} style={styles.statusPill} accessibilityLabel="Refresh Linux workspace status">
+        {state==='checking'?<ActivityIndicator size="small" color="#91AF96"/>:
+          <View style={[styles.liveDot,{backgroundColor:state==='awake'?'#37CC79':'#8F8E95'}]}/>}
+        <Text style={[styles.pillText,{color:state==='awake'?'#64DE95':'#ABAAB0'}]}>
+          {state==='awake'?'Awake':state==='checking'?'Checking':'Offline'}
+        </Text>
+      </Pressable>
+      <Pressable onPress={()=>void refresh()} style={styles.topControl} accessibilityLabel="Refresh">
+        <Icon name="more-horizontal" size={23} color="#D9D7DC"/>
+      </Pressable>
     </View>
-    <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <View style={styles.eyebrowRow}>
-        <View style={styles.eyebrowLine}/>
-        <Text style={styles.eyebrow}>YOUR REMOTE WORKSPACE</Text>
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.sectionHeading}>
+        <Text style={styles.sectionTitle}>Your shortcuts</Text>
+        <Pressable onPress={()=>onAgent('opencode')} style={styles.addButton}>
+          <Icon name="plus" size={22} color="#BEBAC3"/>
+        </Pressable>
       </View>
-      <Text style={styles.headline}>Your tools.{"\n"}One workspace.</Text>
-      <Text style={styles.description}>Launch an independent Linux CLI session for each coding agent.</Text>
-
-      <Pressable onPress={()=>onAgent('opencode')} style={styles.workspaceCard}>
-        <View style={styles.workspaceTop}>
-          <View style={styles.serverIcon}><Icon name="server" size={22} color="#DAC7FF"/></View>
-          <View style={{flex:1}}>
-            <Text style={styles.serverTitle}>Linux workspace</Text>
-            <Text style={styles.serverMeta}>Noethara Dev · Remote runtime</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shortcuts}>
+        {agents.map(item=><Pressable key={item.id} style={styles.agentCard} onPress={()=>onAgent(item.id)}>
+          <View style={styles.agentTop}>
+            <View style={styles.agentBadge}><Icon name={item.symbol} size={22} color={item.color}/></View>
+            <Icon name="arrow-up-right" size={17} color="#85848A"/>
           </View>
-          <Icon name="arrow-up-right" color="#9A8FAD" size={19}/>
+          <View>
+            <Text style={styles.agentTitle}>{item.title}</Text>
+            <Text style={styles.agentMeta}>{item.description}</Text>
+          </View>
+        </Pressable>)}
+      </ScrollView>
+
+      <View style={[styles.sectionHeading,{marginTop:30}]}>
+        <Text style={styles.sectionTitle}>Projects</Text>
+        <Text style={styles.muted}>Managed Linux</Text>
+      </View>
+      <Pressable style={styles.projectCard} onPress={()=>onAgent('opencode')}>
+        <View style={styles.projectIcon}><Icon name="folder" size={23} color="#C6C4CB"/></View>
+        <View style={styles.projectDetails}>
+          <Text style={styles.projectTitle}>Noethara workspace</Text>
+          <Text style={styles.projectPath}>Your persistent Linux environment</Text>
+          <Text style={styles.projectSub}>{state==='awake'?'Server connected · Open a CLI session':'Awaiting secure server connection'}</Text>
         </View>
-        <View style={styles.workspaceBottom}>
-          <View style={[styles.workspaceDot,{backgroundColor:configured?'#E4B56B':'#75717A'}]}/>
-          <Text style={styles.workspaceStatus}>{configured?'Gateway saved · Tap to connect':'Connection not configured'}</Text>
-          <Text style={styles.workspaceHint}>Set up <Icon name="chevron-right" size={12} color="#B3A7C3"/></Text>
-        </View>
+        <Icon name="chevron-right" size={23} color="#A4A2AA"/>
       </Pressable>
 
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Coding agents</Text>
-          <Text style={styles.sectionSubtitle}>Choose a CLI to open its own terminal</Text>
-        </View>
-        <View style={styles.countPill}><Text style={styles.countText}>03</Text></View>
+      <View style={[styles.sectionHeading,{marginTop:34}]}>
+        <Text style={styles.sectionTitle}>Recent projects</Text>
       </View>
-
-      <View style={styles.cards}>
-        {agents.map((agent,index)=>(
-          <Pressable key={agent.id} onPress={()=>onAgent(agent.id)}
-            accessibilityLabel={'Open '+agent.title+' CLI'} style={({pressed})=>[styles.agentCard,pressed&&{opacity:0.75,transform:[{scale:0.992}]}]}>
-            <View style={[styles.agentIcon,{backgroundColor:agent.surface}]}>
-              <Icon name={agent.icon} size={24} color={agent.accent}/>
-            </View>
-            <View style={styles.agentContent}>
-              <Text style={styles.agentTitle}>{agent.title}</Text>
-              <Text style={styles.agentTag}>{agent.tag}</Text>
-              <Text style={styles.agentDescription} numberOfLines={1}>{agent.description}</Text>
-            </View>
-            <View style={styles.chevron}><Icon name="arrow-up-right" size={18}/></View>
-          </Pressable>
-        ))}
+      <View style={styles.recentEmpty}>
+        <Icon name="layers" size={21} color="#77757D"/>
+        <Text style={styles.recentText}>Project history will appear when workspace synchronization is available.</Text>
       </View>
-
-      <View style={styles.infoCard}>
-        <Icon name="info" size={16} color="#7F68AA"/>
-        <Text style={styles.infoText}>
-          CLI sessions run on your Linux server and remain separate from AI chat. A secure WSS connection is required for terminal input and output.
-        </Text>
-      </View>
+      {state==='offline'&&!!message&&
+        <Pressable onPress={()=>void refresh()} style={styles.notice}>
+          <Icon name="alert-circle" size={17} color="#BAA5D9"/>
+          <Text style={styles.noticeText}>{message}</Text>
+          <Icon name="refresh-cw" size={16} color="#BAA5D9"/>
+        </Pressable>}
     </ScrollView>
-  </LinearGradient>;
+    <Pressable style={styles.newButton} onPress={()=>onAgent('opencode')}>
+      <Icon name="plus" size={25} color="#212023"/>
+      <Text style={styles.newText}>New</Text>
+    </Pressable>
+  </View>;
 }
 const styles=StyleSheet.create({
-  root:{flex:1},
-  header:{height:76,flexDirection:'row',alignItems:'center',paddingHorizontal:19,gap:12},
-  back:{width:38,height:38,alignItems:'center',justifyContent:'center'},
-  headerTitle:{fontSize:19,color:'#242328',fontWeight:'700',letterSpacing:-0.5,flex:1},
-  headerRight:{flexDirection:'row',alignItems:'center',gap:7},
-  greenDot:{width:7,height:7,borderRadius:5,backgroundColor:'#33BD77'},
-  headerRightText:{fontSize:10,fontWeight:'700',color:'#9B98A2',letterSpacing:1},
-  scroll:{paddingHorizontal:23,paddingTop:30,paddingBottom:40},
-  eyebrowRow:{flexDirection:'row',alignItems:'center',gap:9,marginBottom:14},
-  eyebrowLine:{width:20,height:2,backgroundColor:'#906CCF',borderRadius:2},
-  eyebrow:{fontSize:10,fontWeight:'700',color:'#867A9A',letterSpacing:1.3},
-  headline:{fontSize:35,fontWeight:'700',color:'#25232A',letterSpacing:-1.6,lineHeight:42},
-  description:{fontSize:14,color:'#8C8991',lineHeight:23,marginTop:12,marginBottom:28,maxWidth:315},
-  workspaceCard:{backgroundColor:'#222126',borderRadius:22,marginBottom:35,
-    padding:18,borderColor:'#35313A',borderWidth:1,shadowColor:'#4C4154',shadowOpacity:0.16,
-    shadowOffset:{width:0,height:10},shadowRadius:18,elevation:3},
-  workspaceTop:{flexDirection:'row',alignItems:'center',gap:12,marginBottom:21},
-  serverIcon:{width:42,height:42,borderRadius:14,backgroundColor:'#363041',
-    alignItems:'center',justifyContent:'center'},
-  serverTitle:{fontSize:15,fontWeight:'700',color:'#F7F4F8'},
-  serverMeta:{fontSize:11.5,color:'#AFA9B5',marginTop:5},
-  workspaceBottom:{paddingTop:15,borderTopWidth:1,borderTopColor:'#403B43',
-    flexDirection:'row',alignItems:'center',gap:8},
-  workspaceDot:{width:7,height:7,borderRadius:5},
-  workspaceStatus:{fontSize:11,color:'#BCB5C3',flex:1},
-  workspaceHint:{fontSize:11,fontWeight:'600',color:'#CEC3DB'},
-  sectionHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:16},
-  sectionTitle:{fontSize:18,fontWeight:'700',letterSpacing:-0.4,color:'#2B292F'},
-  sectionSubtitle:{fontSize:12,color:'#9A969F',marginTop:5},
-  countPill:{paddingVertical:7,paddingHorizontal:10,backgroundColor:'#EFEBF0',borderRadius:10},
-  countText:{color:'#7B7182',fontSize:11,fontWeight:'700'},
-  cards:{gap:10},
-  agentCard:{backgroundColor:'#FFFFFF',padding:15,borderWidth:1,borderColor:'#EBE7E4',borderRadius:18,
-    flexDirection:'row',alignItems:'center',gap:13,shadowColor:'#817B79',shadowOpacity:0.04,
-    shadowOffset:{width:0,height:4},shadowRadius:9},
-  agentIcon:{width:51,height:51,borderRadius:15,alignItems:'center',justifyContent:'center'},
-  agentContent:{flex:1,justifyContent:'center'},
-  agentTitle:{fontSize:16,fontWeight:'700',color:'#29272B',letterSpacing:-0.3},
-  agentTag:{fontSize:11,color:'#7F6CA0',marginTop:4,fontWeight:'500'},
-  agentDescription:{fontSize:11.5,color:'#969199',marginTop:7},
-  chevron:{width:32,height:32,borderRadius:11,borderWidth:1,borderColor:'#F0EDEA',
-    justifyContent:'center',alignItems:'center'},
-  infoCard:{flexDirection:'row',gap:11,alignItems:'flex-start',
-    borderRadius:15,backgroundColor:'#F2EDF6',padding:15,marginTop:27},
-  infoText:{flex:1,fontSize:11.5,color:'#82758F',lineHeight:18},
+  root:{flex:1,backgroundColor:'#171719'},
+  header:{height:80,paddingHorizontal:18,flexDirection:'row',alignItems:'center',gap:12},
+  topControl:{height:43,width:39,justifyContent:'center',alignItems:'center'},
+  headerTitle:{color:'#F3F2F3',fontWeight:'700',fontSize:25,letterSpacing:-0.8,flex:1},
+  statusPill:{height:36,flexDirection:'row',gap:9,alignItems:'center',
+    borderRadius:23,backgroundColor:'#242B26',paddingHorizontal:14},
+  liveDot:{height:9,width:9,borderRadius:9},
+  pillText:{fontSize:13,fontWeight:'700'},
+  content:{paddingTop:49,paddingBottom:150},
+  sectionHeading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',
+    paddingHorizontal:22,marginBottom:18},
+  sectionTitle:{fontSize:18.5,color:'#F1F0F2',fontWeight:'700',letterSpacing:-0.4},
+  addButton:{height:31,width:31,alignItems:'center',justifyContent:'center'},
+  shortcuts:{gap:11,paddingHorizontal:22,paddingRight:26},
+  agentCard:{height:157,width:152,padding:15,borderRadius:18,
+    backgroundColor:'#242427',borderWidth:1,borderColor:'#303033',
+    justifyContent:'space-between'},
+  agentTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start'},
+  agentBadge:{width:39,height:39,backgroundColor:'#303034',borderRadius:12,
+    alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:'#3A383E'},
+  agentTitle:{color:'#F4F2F4',fontSize:16,fontWeight:'700',letterSpacing:-0.5},
+  agentMeta:{color:'#929198',fontSize:11.5,marginTop:7},
+  muted:{color:'#89888D',fontSize:12},
+  projectCard:{marginHorizontal:22,padding:17,borderWidth:1,borderColor:'#303034',
+    backgroundColor:'#242426',borderRadius:17,flexDirection:'row',alignItems:'center',gap:13},
+  projectIcon:{width:43,height:43,alignItems:'center',justifyContent:'center'},
+  projectDetails:{flex:1,gap:5},
+  projectTitle:{color:'#F1F0F2',fontWeight:'700',fontSize:16},
+  projectPath:{color:'#99979F',fontSize:12},
+  projectSub:{color:'#CAC6CE',fontSize:11,marginTop:2},
+  recentEmpty:{flexDirection:'row',alignItems:'center',gap:13,paddingHorizontal:28,paddingTop:14},
+  recentText:{color:'#99979D',fontSize:12.5,lineHeight:20,flex:1},
+  notice:{marginHorizontal:22,marginTop:30,padding:15,borderRadius:14,
+    borderWidth:1,borderColor:'#484050',backgroundColor:'#29242D',
+    flexDirection:'row',alignItems:'center',gap:11},
+  noticeText:{color:'#C0B3CD',fontSize:12,lineHeight:18,flex:1},
+  newButton:{position:'absolute',right:23,bottom:26,height:58,borderRadius:25,
+    paddingHorizontal:23,backgroundColor:'#F5F2EF',flexDirection:'row',
+    alignItems:'center',justifyContent:'center',gap:12},
+  newText:{fontSize:17,fontWeight:'700',color:'#222125'},
 });

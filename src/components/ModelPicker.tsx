@@ -99,7 +99,7 @@ export function ModelPicker({
               <Text style={styles.provider}>{item.provider === 'beam'?'Reflection · Beam':'NVIDIA NIM · access varies'}</Text>
             </View>
             {active && <Feather name="check-circle" size={22} color="#7758C9"/>}
-          </Press>;
+          </Pressable>;
         }}/>
       {!!notice && <Text style={styles.bottomNote} numberOfLines={2}>{notice}</Text>}
     </View>

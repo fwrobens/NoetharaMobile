@@ -3,6 +3,7 @@ import {
   ActivityIndicator, Keyboard, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import type { ScrollViewInstance } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getSession } from '../lib/noetharaBackend';
 
@@ -35,7 +36,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
   const [input,setInput] = useState('');
   const wsRef=useRef<WebSocket|null>(null);
   const alive=useRef(true);
-  const scrollRef=useRef<ScrollView>(null);
+  const scrollRef=useRef<ScrollViewInstance>(null);
   const append=(message:string)=>setOutput(previous=>(previous+cleanAnsi(message)).slice(-45000));
   const disconnect=()=>{
     const socket=wsRef.current;wsRef.current=null;

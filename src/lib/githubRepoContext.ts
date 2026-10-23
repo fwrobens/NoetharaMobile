@@ -19,8 +19,9 @@ export async function readProjectContext(project: SelectedProject, instruction: 
   const folders: Array<{path:string;depth:number}> = [{path:'',depth:0}];
   const files: GithubEntry[] = [];
   const visited = new Set<string>();
+  const deadline=Date.now()+14000;
   // Bounded tree exploration prevents runaway GitHub API consumption.
-  while (folders.length && visited.size < 18 && files.length < 300) {
+  while (folders.length && visited.size < 8 && files.length < 200 && Date.now()<deadline) {
     const next = folders.shift()!;
     if (visited.has(next.path)) continue;
     visited.add(next.path);
@@ -42,13 +43,13 @@ export async function readProjectContext(project: SelectedProject, instruction: 
   }
   const words = [...new Set((instruction.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g)||[])
     .filter(w=>!['please','code','project','this','that','with','want','what','would','could','should','there','have','from','need','help','your','file','files','app'].includes(w)))].slice(0,18);
-  const chosen=files.sort((a,b)=>fileScore(b.path,words)-fileScore(a.path,words)).slice(0,8);
+  const chosen=files.sort((a,b)=>fileScore(b.path,words)-fileScore(a.path,words)).slice(0,4);
   const chunks:string[]=[];
   let total=0;
   // Keep a complete project-context message below the Edge Function's 14K/message limit.
   // This also prevents large repositories from exhausting free inference quotas.
   for (const file of chosen) {
-    if (total>8400) break;
+    if (total>8400 || Date.now()>deadline) break;
     try {
       const data = await noetharaAPI.contents(project.repo,file.path,project.branch);
       if (data.kind!=='file'||!data.content) continue;

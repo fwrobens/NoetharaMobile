@@ -81,7 +81,7 @@ export function ModelPicker({
       {!!source && <Text style={styles.catalog}>Catalog: {source === 'nvidia-live-catalog' ? 'NVIDIA live catalog + documented models' : source === 'preview-only' ? 'Preview-only catalog · sign in for live access' : 'NVIDIA documented models (live listing unavailable)'}</Text>}
       {loading && <ActivityIndicator style={{ margin: 20 }} color="#7355C7"/>}
       {!!error && <View style={styles.alert}><Text style={styles.error}>{error}</Text>
-        <Pressable onPress={refresh}><Text style={styles.retry}>Try again</Text></Press>
+        <Pressable onPress={refresh}><Text style={styles.retry}>Try again</Text></Pressable>
       </View>}
       <FlatList data={filtered} keyExtractor={item=>item.provider+':'+item.id}
         keyboardShouldPersistTaps="handled"

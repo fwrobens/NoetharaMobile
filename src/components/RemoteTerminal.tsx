@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getSession } from '../lib/noetharaBackend';
+import { TerminalEmulator, type TerminalEmulatorHandle } from './TerminalEmulator';
 
 type Agent = 'opencode' | 'codex' | 'claude';
 type Connection = 'offline' | 'connecting' | 'online';
@@ -23,20 +24,35 @@ const MANAGED_ENDPOINT = 'wss://terminal.noethara.cloud';
 const Glyph = ({name,size=20,color=COLORS.text}:{
   name: React.ComponentProps<typeof Feather>['name'];size?:number;color?:string;
 }) => <Feather name={name} size={size} color={color}/>;
-const cleanAnsi = (s: string) => s
-  .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,'')
-  .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\([A-Za-z0-9])/g,'')
-  .replace(/\r(?!\n)/g,'\n');
 
 export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
   const [status,setStatus] = useState<Connection>('offline');
   const [error,setError] = useState('');
-  const [output,setOutput] = useState('');
+  const [hasOutput,setHasOutput] = useState(false);
   const [input,setInput] = useState('');
   const wsRef=useRef<WebSocket|null>(null);
   const alive=useRef(true);
-  const scrollRef=useRef<ScrollView>(null);
-  const append=(message:string)=>setOutput(previous=>(previous+cleanAnsi(message)).slice(-45000));
+  const terminalRef=useRef<TerminalEmulatorHandle>(null);
+  const terminalReady=useRef(false);
+  const bufferedOutput=useRef('');
+  const dimensions=useRef({cols:80,rows:24});
+  // Preserve raw VT sequences. xterm renders full-screen TUI redraws correctly.
+  const append=(message:string)=>{
+    setHasOutput(true);
+    if(terminalReady.current)terminalRef.current?.write(message);
+    else bufferedOutput.current=(bufferedOutput.current+message).slice(-100000);
+  };
+  const resize=(cols:number,rows:number)=>{
+    dimensions.current={cols,rows};
+    if(wsRef.current?.readyState===WebSocket.OPEN&&status==='online')
+      wsRef.current.send(JSON.stringify({type:'resize',cols,rows}));
+  };
+  const rendererReady=()=>{
+    terminalReady.current=true;
+    if(bufferedOutput.current)terminalRef.current?.write(bufferedOutput.current);
+    bufferedOutput.current='';
+    terminalRef.current?.fit();
+  };
   const disconnect=()=>{
     const socket=wsRef.current;wsRef.current=null;
     if(socket){socket.onclose=null;socket.close();}
@@ -44,6 +60,9 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
   };
   async function connect(){
     disconnect();
+    terminalRef.current?.reset();
+    bufferedOutput.current='';
+    setHasOutput(false);
     setStatus('connecting');
     setError('');
     const agentLabel=LABELS[agent];
@@ -102,6 +121,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
         if(response.type==='ready'){
           setStatus('online');
           setError('');
+          socket.send(JSON.stringify({type:'resize',...dimensions.current}));
         }else if(response.type==='output'){
           append(response.data||'');
         }else if(response.type==='error'){
@@ -152,7 +172,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
     Keyboard.dismiss();
   };
   const sendKey=(data:string)=>{
-    if(connected&&wsRef.current?.readyState===WebSocket.OPEN)
+    if(wsRef.current?.readyState===WebSocket.OPEN && connected)
       wsRef.current.send(JSON.stringify({type:'input',data}));
   };
   return <View style={styles.root}>
@@ -186,32 +206,36 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
             color={connected?COLORS.success:COLORS.muted}/>
         </Pressable>
       </View>
-      <ScrollView ref={scrollRef} style={styles.terminalScroll}
-        keyboardShouldPersistTaps="handled" contentContainerStyle={styles.terminalBody}
-        onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:false})}>
-        {!!output&&<Text selectable style={styles.outputText}>{output}</Text>}
-        {connected&&!output&&<View style={styles.connectionNotice}>
-          <ActivityIndicator color={COLORS.accent} size="small"/>
-          <Text style={styles.connectionNoticeText}>Connected. Loading CLI session…</Text>
+      <View style={styles.terminalViewport}>
+        <TerminalEmulator ref={terminalRef}
+          onReady={rendererReady}
+          onInput={sendKey}
+          onResize={resize}
+          onError={message=>setError(message)}/>
+        {!hasOutput&&status==='connecting'&&<View style={styles.overlay} pointerEvents="none">
+          <ActivityIndicator color="#B89BFF" size="small"/>
+          <Text style={styles.overlayText}>Connecting to Noethara Linux…</Text>
         </View>}
-        {status==='connecting'&&!output&&<View style={styles.connectingState}>
-          <ActivityIndicator color={COLORS.accent} size="small"/>
-          <Text style={styles.connectingText}>Connecting to Noethara Linux…</Text>
+        {!hasOutput&&status==='online'&&<View style={styles.overlay} pointerEvents="none">
+          <ActivityIndicator color="#B89BFF" size="small"/>
+          <Text style={styles.overlayText}>Opening {LABELS[agent]} session…</Text>
         </View>}
-        {!connected&&status!=='connecting'&&!output&&<View style={styles.emptyState}>
-          <View style={styles.terminalLogo}><Glyph name="terminal" size={27} color={COLORS.accent}/></View>
-          <Text style={styles.emptyTitle}>Your cloud terminal.</Text>
-          <Text style={styles.emptyDescription}>Your Linux workspace is managed by Noethara. No SSH key or connection setup needed.</Text>
+        {!connected&&status!=='connecting'&&!hasOutput&&<View style={styles.overlay}>
+          <Glyph name="terminal" size={27} color="#C6AFFD"/>
+          <Text style={styles.overlayTitle}>Cloud terminal offline</Text>
+          <Text style={styles.overlayText}>Reconnect to your managed Linux workspace.</Text>
           <Pressable onPress={()=>void connect()} style={styles.emptyAction}>
             <Text style={styles.emptyActionText}>Reconnect</Text>
             <Glyph name="refresh-cw" size={16} color="#FFFFFF"/>
           </Pressable>
         </View>}
-        {!!error&&<View style={styles.errorRow}>
-          <Glyph name="alert-circle" color="#AD6F5A" size={16}/>
-          <Text style={styles.errorText}>{error}</Text>
+        {!!error&&<View style={styles.errorOverlay} pointerEvents="box-none">
+          <View style={styles.errorRow}>
+            <Glyph name="alert-circle" color="#AD6F5A" size={16}/>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
         </View>}
-      </ScrollView>
+      </View>
       <View style={styles.terminalFooter}>
         <View style={styles.footerIndicator}/>
         <Text style={styles.footerLabel}>{connected?'Connected to Linux runtime':'Workspace offline'}</Text>
@@ -224,7 +248,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
         {([
           {label:'esc',data:'\x1b'}, {label:'tab',data:'\t'}, {label:'ctrl+c',data:'\x03'},
           {label:'↑',data:'\x1b[A'}, {label:'↓',data:'\x1b[B'},
-          {label:'←',data:'\x1b[D'}, {label:'→',data:'\x1b[C'},
+          {label:'←',data:'\x1b[D'}, {label:'→',data:'\x1b[C'}, {label:'enter',data:'\r'},
         ]).map(key=><Pressable key={key.label} onPress={()=>sendKey(key.data)}
           disabled={!connected} style={[styles.key,!connected&&styles.disabledKey]}>
           <Text style={styles.keyText}>{key.label}</Text>
@@ -267,9 +291,13 @@ const styles=StyleSheet.create({
   chromeDot:{width:8,height:8,borderRadius:6},
   chromeTitle:{flex:1,textAlign:'center',fontSize:11.5,color:'#918D92',fontWeight:'500'},
   chromeAction:{width:28,height:28,alignItems:'flex-end',justifyContent:'center'},
-  terminalScroll:{flex:1},
-  terminalBody:{flexGrow:1,paddingHorizontal:17,paddingVertical:17},
-  outputText:{fontFamily:Platform.OS==='ios'?'Menlo':'monospace',fontSize:12.5,lineHeight:19.5,color:'#323036'},
+  terminalViewport:{flex:1,position:'relative',backgroundColor:'#141416',minHeight:0},
+  overlay:{position:'absolute',left:0,right:0,top:0,bottom:0,
+    justifyContent:'center',alignItems:'center',gap:12,paddingHorizontal:25,
+    backgroundColor:'#141416'},
+  overlayTitle:{color:'#F0EDF5',fontSize:17,fontWeight:'700'},
+  overlayText:{color:'#A5A0AE',fontSize:12.5,textAlign:'center'},
+  errorOverlay:{position:'absolute',left:8,right:8,bottom:9},
   emptyState:{flex:1,justifyContent:'center',alignItems:'center',gap:13,paddingVertical:25,paddingHorizontal:18},
   terminalLogo:{height:58,width:58,borderRadius:19,alignItems:'center',justifyContent:'center',
     borderWidth:1,borderColor:'#E4DAF1',backgroundColor:'#F2ECFA',marginBottom:3,
@@ -283,7 +311,7 @@ const styles=StyleSheet.create({
   connectingText:{fontSize:12.5,color:'#92839C'},
   connectionNotice:{flexDirection:'row',alignItems:'center',gap:10},
   connectionNoticeText:{color:'#87838A',fontSize:12.5},
-  errorRow:{marginTop:14,padding:12,backgroundColor:'#FFF5F0',borderWidth:1,
+  errorRow:{padding:12,backgroundColor:'#FFF5F0',borderWidth:1,
     borderColor:'#F0DEDA',borderRadius:11,flexDirection:'row',gap:9,alignItems:'flex-start'},
   errorText:{color:'#AE6257',fontSize:12,lineHeight:18,flex:1},
   terminalFooter:{height:33,borderTopWidth:1,borderColor:'#EBE7E0',

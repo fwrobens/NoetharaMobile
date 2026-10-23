@@ -19,8 +19,19 @@ if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || !ALLOWED_USERS.s
   console.error('Missing NOETHARA_SUPABASE_URL, NOETHARA_SUPABASE_PUBLISHABLE_KEY, or NOETHARA_ALLOWED_USER_IDS. Refusing to start.');
   process.exit(1);
 }
-const server = createServer((_req,res)=>{
-  res.writeHead(404,{'content-type':'text/plain','cache-control':'no-store'});
+const server = createServer(async(req,res)=>{
+  const url=new URL(req.url||'/', 'http://localhost');
+  res.setHeader('cache-control','no-store');
+  if(req.method==='GET' && url.pathname==='/status'){
+    const bearer=req.headers.authorization?.startsWith('Bearer ') ?
+      req.headers.authorization.slice(7) : '';
+    const userId=await authenticate(bearer);
+    res.writeHead(userId?200:401,{'content-type':'application/json'});
+    res.end(JSON.stringify(userId?{status:'awake',workspace:'managed',agents:[...AGENTS]}:
+      {error:'Not authorized'}));
+    return;
+  }
+  res.writeHead(404,{'content-type':'text/plain'});
   res.end('Not found');
 });
 const wss = new WebSocketServer({server,maxPayload:8192,perMessageDeflate:false,clientTracking:true});

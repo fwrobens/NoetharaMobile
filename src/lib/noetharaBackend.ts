@@ -256,7 +256,7 @@ async function callAPI<T>(path: string, options: {
   }
   let res: Response;
   const abort = new AbortController();
-  const timer=setTimeout(()=>abort.abort(),path==='/chat'?68000:18000);
+  const timer=setTimeout(()=>abort.abort(),path==='/chat'?68000:path.startsWith('/github/contents')?10000:18000);
   try {
     res = await fetch(API_URL + path, {
       method: options.method ?? 'GET',

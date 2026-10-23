@@ -47,7 +47,7 @@ class BootBoundary extends React.Component<{ children: React.ReactNode }, BootSt
         React.createElement(Pressable, { onPress: this.retry, style: styles.button, accessibilityRole: 'button' },
           React.createElement(Text, { style: styles.buttonText }, 'Try opening again')),
         React.createElement(Text, { style: styles.hint },
-          'Share the error above to help diagnose the failed startup.')),
+          'Share the error above to help diagnose the failed startup.'),
       ),
     );
   }

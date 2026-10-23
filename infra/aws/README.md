@@ -1,6 +1,6 @@
 # Managed Linux workspace via Cloudflare (October 2026)
 
-**Cloudflare setup already created:** `noethara-terminal` (Tunnel ID `0e21ab61-7710-45ed-bd2f-ff7d5889751e`), configured to proxy `terminal.noethara.cloud` to `http://127.0.0.1:8789` on the EC2 host. It is currently **inactive**. The DNS record is deliberately unpublished until the hardened gateway and connector are verified.
+**Cloudflare setup already created:** `noethara-terminal` (Tunnel ID `0e21ab61-7710-45ed-bd2f-ff7d5889751e`), configured to proxy `terminal.noethara.cloud` to `http://127.0.0.1:8789` on the EC2 host. The tunnel was verified active and the proxied DNS record published in October 2026. Check live status in Cloudflare when troubleshooting.
 
 **Mobile behavior:** The Expo app automatically connects to `wss://terminal.noethara.cloud` using the current Supabase access token. Users do not enter an EC2 address, Linux credentials or terminal token.
 
@@ -24,7 +24,15 @@ After starting, verify `pm2 status`, `sudo systemctl status cloudflared`, and `c
 
 **After the connector is healthy and the authorized gateway verified:** create a proxied Cloudflare CNAME `terminal.noethara.cloud` pointing to `0e21ab61-7710-45ed-bd2f-ff7d5889751e.cfargotunnel.com`. Do not create this DNS record early. Then test an authenticated WebSocket from Expo Go.
 
-OpenCode, Codex and Claude Code still require their individual CLI installations and supported provider authorization. Interactive full-screen terminal rendering is not yet at feature parity with Cosyra.
+The Cloudflare tunnel may be healthy even when a selected CLI immediately exits. When a mobile screen shows `command not found` or `[CLI session ended]`, install the coding agents **on EC2**, not in Cosyra:
+
+```bash
+cd ~/NoetharaMobile
+git pull --ff-only origin main
+bash infra/aws/install-cli-agents.sh
+```
+
+The installer sets a per-user npm prefix, installs OpenCode, Codex, and Claude Code using their official npm packages without sudo, verifies binary availability and restarts the PM2 gateway. Only your allowlisted Supabase account can open the remote CLI. Each tool requires its own supported provider sign-in to perform AI tasks. Do not place OAuth access tokens, API keys, or CLI credentials into the Expo app or screenshots. Full-screen terminal ANSI/PTY rendering is not yet at feature parity with Cosyra.
 
 ---
 

@@ -222,7 +222,7 @@ function Composer({
   prompt, setPrompt, inputRef, selection, setSelection, onFocus, onBlur, onSend,
   isFocused, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
-  prompt: string; setPrompt: (value: string) => void; inputRef: React.RefObject<TextInput | null>;
+  prompt: string; setPrompt: (value: string) => void; inputRef: React.RefObject<React.ElementRef<typeof TextInput> | null>;
   selection: { start: number; end: number }; setSelection: (value: { start: number; end: number }) => void;
   onFocus: () => void; onBlur: () => void; onSend: () => void;
   isFocused: boolean; mode: string; setMode: (value: string) => void; provider: string;
@@ -483,7 +483,7 @@ function RootApp() {
   const [activeChatId,setActiveChatId]=useState<string|null>(null);
   const [chatVersion,setChatVersion]=useState(0);
   const [terminalAgent,setTerminalAgent]=useState<'opencode'|'codex'|'claude'>('opencode');
-  const inputRef=useRef<TextInput>(null);
+  const inputRef=useRef<React.ElementRef<typeof TextInput>>(null);
   const {width:screenWidth}=useWindowDimensions();
   const drawerWidth=Math.min(screenWidth*0.79,338);
   const drawerProgress=useRef(new Animated.Value(0)).current;

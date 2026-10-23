@@ -214,7 +214,8 @@ Deno.serve(async request => {
       let fallbackUsed = false;
       // Only recover from outages or throttling; never silently route to another
       // paid or unauthorized provider. No Vercel credential is required.
-      if (!result.ok && (result.status === 429 || result.status >= 500)) {
+      if (!result.ok && (result.status === 429 || result.status >= 500 ||
+        (chosenProvider === 'nvidia' && [400,404,422].includes(result.status)))) {
         if (chosenProvider === 'beam' && nvidiaKey()) {
           result = await infer('nvidia', NVIDIA_DEFAULT, messages);
           fallbackUsed = result.ok;

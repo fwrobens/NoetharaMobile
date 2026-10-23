@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   supabase, getSession, signInWithGitHub, signInWithGoogle, signInWithEmail, signUpWithEmail,
   logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI, getGitHubToken, getGitHubConnection,
+  connectGitHubForAccount, verifyGitHubConnection,
   type Repo, type GithubEntry,
 } from '../lib/noetharaBackend';
 import { ModelPicker, useModelPreference } from './ModelPicker';
@@ -52,6 +53,14 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
   const [message,setMessage]=useState('');
   const [status,setStatus]=useState<{beam:boolean;nvidia:boolean;fallback:boolean}|null>(null);
   const [githubStatus,setGithubStatus]=useState('Not checked');
+  useEffect(()=>{
+    if(section!=='github'||!signedIn)return;
+    let active=true;
+    void verifyGitHubConnection()
+      .then(count=>{if(active)setGithubStatus('Connected · '+count+' repositories available');})
+      .catch(e=>{if(active)setGithubStatus(e instanceof Error?e.message:'GitHub connection needs authorization');});
+    return()=>{active=false;};
+  },[section,signedIn]);
   useEffect(()=>{getSession().then(s=>setSignedIn(Boolean(s))).catch(()=>{});},[]);
   useEffect(()=>{if(signedIn)noetharaAPI.status().then(setStatus).catch(()=>setStatus(null));},[signedIn,section]);
   async function run(action:()=>Promise<unknown>) {
@@ -78,7 +87,7 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
           <Section label="Development">
             <Item title="LLM Providers" subtitle="Beam AI · NVIDIA NIM free development endpoints" iconName="cpu" trailing={status?.beam||status?.nvidia?'Ready':'Setup'} onPress={()=>setSection('providers')} />
             <Item title="GitHub Integration" subtitle="OAuth · browse private repositories" iconName="github"
-              trailing={getGitHubToken()?'Connected':''} onPress={()=>setSection('github')}/>
+              trailing={githubStatus.startsWith('Connected')?'Connected':''} onPress={()=>setSection('github')}/>
             <Item title="Repository files" subtitle="Choose source files for AI context" iconName="folder" onPress={openRepos}/>
             <Item title="Connectors" subtitle="Read-only GitHub tools" iconName="grid" onPress={()=>setSection('github')}/>
           </Section>
@@ -136,13 +145,17 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
             <Text selectable style={styles.url}>https://integrate.api.nvidia.com/v1</Text>
           </View></Section>
         </> : <>
-          <Note>Your GitHub OAuth callback is the fixed Supabase URL below. The second redirect returns to your running Expo app.</Note>
+          <Note>GitHub repository access is separate from your Noethara login. Connecting an existing account links GitHub without changing which Supabase account owns your chats. If linking is disabled, enable Manual Identity Linking in Supabase Auth settings.</Note>
           <Section label="GitHub OAuth">
             <View style={styles.fieldWrap}>
               <Text style={styles.caption}>GITHUB OAUTH APP CALLBACK</Text><Text selectable style={styles.url}>{AUTH_CALLBACK_URL}</Text>
               <Text style={styles.caption}>EXPO GO REDIRECT (ALLOWLIST IN SUPABASE)</Text><Text selectable style={styles.url}>{getOAuthReturnUrl()}</Text>
               <Text style={styles.fieldText}>For Expo Go, the development redirect can change each time the tunnel changes. For permanent deep links, use a development or standalone build with noetharadev://auth/callback.</Text>
-              <Action dark title={getGitHubToken()?'Reconnect GitHub':'Connect GitHub'} disabled={loading} onPress={()=>run(signInWithGitHub)}/>
+              <Action dark title={githubStatus.startsWith('Connected')?'Reconnect GitHub':'Connect GitHub'} disabled={loading} onPress={()=>run(async()=>{
+                 await connectGitHubForAccount();
+                 const count=await verifyGitHubConnection();
+                 setGithubStatus('Connected · '+count+' repositories available');
+               })}/>
               <Action title="Verify GitHub repository access" disabled={loading} onPress={()=>run(async()=>{
                 if (!await getGitHubConnection()) throw Error('You are signed in, but the GitHub repository token is missing. Choose Connect GitHub again.');
                 const {repos} = await noetharaAPI.repos();

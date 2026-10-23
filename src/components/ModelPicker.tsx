@@ -86,7 +86,7 @@ export function ModelPicker({
       <FlatList data={filtered} keyExtractor={item=>item.provider+':'+item.id}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: 19, paddingVertical: 12, paddingBottom: 65 }}
-        ListEmptyComponent={!loading && !error ? <Text style={styles.description}>No models match your search.</Text> : null}
+        ListEmptyComponent={() => (!loading && !error ? <Text style={styles.description}>No models match your search.</Text> : null)}
         renderItem={({ item }) => {
           const active = item.id === selected;
           return <Pressable style={[styles.modelCard, active && styles.active]} onPress={()=>void choose(item.id)}>

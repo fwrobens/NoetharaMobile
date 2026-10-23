@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Keyboard, Modal, Platform, Pressable,
+  ActivityIndicator, Keyboard, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import * as SecureStore from 'expo-secure-store';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { getSession } from '../lib/noetharaBackend';
 
 type Agent = 'opencode' | 'codex' | 'claude';
 type Connection = 'offline' | 'connecting' | 'online';
@@ -20,8 +19,7 @@ const COLORS = {
   border: '#2C2E32', text: '#F2F2F4', secondary: '#A2A3A8',
   muted: '#73757E', accent: '#B7A0F2', success: '#44D198',
 };
-const URL_KEY = 'noethara-terminal-gateway-url';
-const TOKEN_KEY = 'noethara-terminal-gateway-token';
+const MANAGED_ENDPOINT = 'wss://terminal.noethara.cloud';
 const Glyph = ({name,size=20,color=COLORS.text}:{
   name: React.ComponentProps<typeof Feather>['name'];size?:number;color?:string;
 }) => <Feather name={name} size={size} color={color}/>;
@@ -31,267 +29,171 @@ const cleanAnsi = (s: string) => s
   .replace(/\r(?!\n)/g,'\n');
 
 export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
-  const [gateway,setGateway] = useState('');
-  const [token,setToken] = useState('');
-  const [settingsOpen,setSettingsOpen] = useState(false);
   const [status,setStatus] = useState<Connection>('offline');
   const [error,setError] = useState('');
-  const [lines,setLines] = useState('');
+  const [output,setOutput] = useState('');
   const [input,setInput] = useState('');
-  const wsRef = useRef<WebSocket|null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const alive = useRef(true);
-
-  const append = (next: string) => {
-    setLines(previous => (previous + cleanAnsi(next)).slice(-45000));
-  };
-  const disconnect = () => {
-    const socket = wsRef.current;
-    wsRef.current = null;
-    if(socket) { socket.onclose = null; socket.close(); }
+  const wsRef=useRef<WebSocket|null>(null);
+  const alive=useRef(true);
+  const scrollRef=useRef<ScrollView>(null);
+  const append=(message:string)=>setOutput(previous=>(previous+cleanAnsi(message)).slice(-45000));
+  const disconnect=()=>{
+    const socket=wsRef.current;wsRef.current=null;
+    if(socket){socket.onclose=null;socket.close();}
     setStatus('offline');
   };
-  function openConnection(address:string,accessToken:string) {
-    const url=address.trim();
-    if (!url.startsWith('wss://')) {
-      setError('A secure wss:// endpoint is required. Configure TLS on your private server first.');
-      setSettingsOpen(true);
-      return;
+  async function connect(){
+    disconnect();setStatus('connecting');setError('');
+    try{
+      const session=await getSession();
+      if(!alive.current)return;
+      if(!session?.access_token)throw new Error('Please sign in to your Noethara account first.');
+      const socket=new WebSocket(MANAGED_ENDPOINT);
+      wsRef.current=socket;
+      socket.onopen=()=>{
+        if(wsRef.current===socket)socket.send(JSON.stringify({
+          type:'auth',token:session.access_token,agent,
+        }));
+      };
+      socket.onmessage=(event)=>{
+        if(wsRef.current!==socket)return;
+        let response:Packet;
+        try{response=JSON.parse(String(event.data));}
+        catch{append(String(event.data));return;}
+        if(response.type==='ready'){setStatus('online');setError('');}
+        else if(response.type==='output')append(response.data||'');
+        else if(response.type==='error'){
+          setError(response.message||'Unable to authorize the Linux workspace.');
+          setStatus('offline');
+          socket.close();
+        }else if(response.type==='exit'){
+          append('\n[CLI session ended]\n');
+          socket.close();
+        }
+      };
+      socket.onerror=()=>{
+        if(wsRef.current!==socket)return;
+        setStatus('offline');
+        setError('The Noethara managed workspace is not reachable yet. Check the server connection.');
+      };
+      socket.onclose=()=>{
+        if(wsRef.current===socket){wsRef.current=null;setStatus('offline');}
+      };
+    }catch(e){
+      setStatus('offline');
+      setError(e instanceof Error?e.message:'Authentication unavailable.');
     }
-    if (!accessToken.trim()) {
-      setError('Enter the access token from your private Noethara Linux runtime.');
-      setSettingsOpen(true);
-      return;
-    }
-    const existing=wsRef.current;
-    if (existing) {existing.onclose=null;existing.close();}
-    setStatus('connecting');setError('');
-    const socket=new WebSocket(url);
-    wsRef.current=socket;
-    let authenticated=false;
-    socket.onopen=()=>{
-      if(wsRef.current===socket) socket.send(JSON.stringify({
-        type:'auth',token:accessToken.trim(),agent,
-      }));
-    };
-    socket.onmessage=(event)=>{
-      if(wsRef.current!==socket)return;
-      let packet: Packet;
-      try {packet=JSON.parse(String(event.data));}
-      catch {append(String(event.data));return;}
-      if(packet.type==='ready'){
-        authenticated=true;
-        setStatus('online');setError('');
-      } else if(packet.type==='output') append(packet.data||'');
-      else if(packet.type==='error'){
-        setError(packet.message||'The remote terminal returned an error.');
-        setStatus('offline');
-        socket.close();
-      } else if(packet.type==='exit'){
-        append('\n[CLI session ended]\n');
-        setStatus('offline');
-        socket.close();
-      }
-    };
-    socket.onerror=()=>{
-      if(wsRef.current===socket) {
-        setError('Could not reach the private terminal. Check the secure gateway URL and runtime service.');
-        setStatus('offline');
-      }
-    };
-    socket.onclose=()=>{
-      if(wsRef.current===socket) {
-        wsRef.current=null;
-        setStatus('offline');
-        if(!authenticated && !error) setError('No terminal session is connected.');
-      }
-    };
   }
   useEffect(()=>{
     alive.current=true;
-    Promise.all([SecureStore.getItemAsync(URL_KEY),SecureStore.getItemAsync(TOKEN_KEY)])
-      .then(([u,t])=>{
-        if(!alive.current)return;
-        setGateway(u||'');setToken(t||'');
-        if(u&&t)openConnection(u,t);
-      }).catch(()=>{
-        if(alive.current){setError('Could not read saved connection settings.');}
-      });
+    void connect();
     return()=>{
       alive.current=false;
-      const socket=wsRef.current;
-      wsRef.current=null;
+      const socket=wsRef.current;wsRef.current=null;
       if(socket){socket.onclose=null;socket.close();}
     };
   },[agent]);
-  const saveAndConnect=async()=>{
-    const url=gateway.trim();
-    if(!url.startsWith('wss://')){
-      setError('Enter an authenticated wss:// URL, not the EC2 IP over unencrypted ws://.');
-      return;
-    }
-    if(token.trim().length<32){setError('Enter your private server token (at least 32 characters).');return;}
-    try{
-      await SecureStore.setItemAsync(URL_KEY,url);
-      await SecureStore.setItemAsync(TOKEN_KEY,token.trim());
-      setSettingsOpen(false);setError('');setLines('');
-      openConnection(url,token.trim());
-    }catch{setError('Could not securely save these connection settings.');}
-  };
+  const connected=status==='online';
   const sendText=()=>{
-    if(!input.length)return;
-    if(status!=='online'||wsRef.current?.readyState!==WebSocket.OPEN)return;
+    if(!connected||!input.trim()||wsRef.current?.readyState!==WebSocket.OPEN)return;
     wsRef.current.send(JSON.stringify({type:'input',data:input+'\r'}));
     setInput('');
     Keyboard.dismiss();
   };
   const sendKey=(data:string)=>{
-    if(status==='online'&&wsRef.current?.readyState===WebSocket.OPEN)
+    if(connected&&wsRef.current?.readyState===WebSocket.OPEN)
       wsRef.current.send(JSON.stringify({type:'input',data}));
   };
-  const connected=status==='online';
-  const configured=Boolean(gateway&&token);
-  return (
-    <View style={styles.root}>
-      <View style={styles.topBar}>
-        <Pressable onPress={onBack} style={styles.iconButton} accessibilityLabel="Back to terminals">
-          <Glyph name="arrow-left" size={23}/>
-        </Pressable>
-        <View style={styles.titleBlock}>
-          <Text style={styles.title}>{LABELS[agent]}</Text>
-          <Text style={styles.subtitle}>Terminal session</Text>
-        </View>
-        <View style={styles.connectionStatus}>
-          <View style={[styles.statusDot,{backgroundColor:connected?COLORS.success:status==='connecting'?'#DEAA6B':'#71717A'}]}/>
-          <Text style={styles.statusLabel}>{connected?'Live':status==='connecting'?'Connecting':'Offline'}</Text>
-        </View>
-        <Pressable onPress={()=>{setError('');setSettingsOpen(true);}}
-          style={styles.iconButton} accessibilityLabel="Connection settings">
-          <Glyph name="settings" size={20} color="#D1D0D5"/>
-        </Pressable>
+  return <View style={styles.root}>
+    <View style={styles.topBar}>
+      <Pressable onPress={onBack} style={styles.iconButton} accessibilityLabel="Back to terminals">
+        <Glyph name="arrow-left" size={23}/>
+      </Pressable>
+      <View style={styles.titleBlock}>
+        <Text style={styles.title}>{LABELS[agent]}</Text>
+        <Text style={styles.subtitle}>Noethara managed workspace</Text>
       </View>
-
-      <View style={styles.terminalFrame}>
-        <View style={styles.terminalChrome}>
-          <View style={styles.chromeDots}>
-            <View style={[styles.chromeDot,{backgroundColor:'#E8777A'}]}/>
-            <View style={[styles.chromeDot,{backgroundColor:'#E2BC74'}]}/>
-            <View style={[styles.chromeDot,{backgroundColor:'#79C69A'}]}/>
-          </View>
-          <Text style={styles.chromeTitle} numberOfLines={1}>noethara · {LABELS[agent].toLowerCase()}</Text>
-          <Pressable onPress={()=>{if(connected)disconnect();else if(configured)openConnection(gateway,token);else setSettingsOpen(true);}}
-            accessibilityLabel={connected?'Disconnect':'Connect'} style={styles.chromeAction}>
-            <Glyph name={connected?'wifi':'wifi-off'} size={15} color={connected?COLORS.success:COLORS.muted}/>
-          </Pressable>
-        </View>
-
-        <ScrollView ref={scrollRef} style={styles.terminalScroll} keyboardShouldPersistTaps="always"
-          contentContainerStyle={styles.terminalBody}
-          onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:false})}>
-          {lines.length>0 && <Text selectable style={styles.outputText}>{lines}</Text>}
-          {connected && !lines && <View style={styles.connectionNotice}>
-            <ActivityIndicator size="small" color={COLORS.accent}/>
-            <Text style={styles.connectionNoticeText}>Connected to {LABELS[agent]}. Loading terminal output…</Text>
-          </View>}
-          {!connected && status!=='connecting' && !lines && (
-            <View style={styles.emptyState}>
-              <View style={styles.terminalLogo}><Glyph name="terminal" size={27} color={COLORS.accent}/></View>
-              <Text style={styles.emptyTitle}>{configured?'Session is offline':'Your terminal, anywhere.'}</Text>
-              <Text style={styles.emptyDescription}>
-                {configured?'Reconnect to your Linux workspace and pick up where you left off.':
-                'Connect your Noethara Linux workspace to run '+LABELS[agent]+' on your server.'}
-              </Text>
-              <Pressable onPress={()=>configured?openConnection(gateway,token):setSettingsOpen(true)}
-                style={styles.emptyAction}>
-                <Text style={styles.emptyActionText}>{configured?'Reconnect session':'Connect workspace'}</Text>
-                <Glyph name="arrow-up-right" size={17} color="#151317"/>
-              </Pressable>
-            </View>
-          )}
-          {status==='connecting' && !lines && (
-            <View style={styles.connectingState}>
-              <ActivityIndicator size="small" color={COLORS.accent}/>
-              <Text style={styles.connectingText}>Opening your private CLI session…</Text>
-            </View>
-          )}
-          {!!error&&<View style={styles.errorRow}>
-            <Glyph name="alert-circle" color="#E2A092" size={16}/>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>}
-        </ScrollView>
-        <View style={styles.terminalFooter}>
-          <View style={styles.footerIndicator}/>
-          <Text style={styles.footerLabel}>{connected?'Connected to Linux runtime': 'Private CLI · No session connected'}</Text>
-          <Text style={styles.footerLabel}>UTF-8</Text>
-        </View>
+      <View style={styles.connectionStatus}>
+        <View style={[styles.statusDot,{backgroundColor:connected?COLORS.success:status==='connecting'?'#DEAA6B':'#71717A'}]}/>
+        <Text style={styles.statusLabel}>{connected?'Live':status==='connecting'?'Connecting':'Offline'}</Text>
       </View>
-
-      <View style={styles.commandBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="always" contentContainerStyle={styles.keyStrip}>
-          {([
-            {label:'esc',data:'\x1b'}, {label:'tab',data:'\t'},
-            {label:'ctrl+c',data:'\x03'}, {label:'↑',data:'\x1b[A'},
-            {label:'↓',data:'\x1b[B'}, {label:'←',data:'\x1b[D'},
-            {label:'→',data:'\x1b[C'},
-          ]).map(key=><Pressable key={key.label} onPress={()=>sendKey(key.data)}
-            disabled={!connected} style={[styles.key, !connected&&styles.disabledKey]}>
-            <Text style={styles.keyText}>{key.label}</Text>
-          </Pressable>)}
-        </ScrollView>
-        <View style={styles.inputRow}>
-          <Text style={styles.promptSymbol}>❯</Text>
-          <TextInput value={input} onChangeText={setInput} onSubmitEditing={sendText}
-            autoCapitalize="none" autoCorrect={false} spellCheck={false}
-            returnKeyType="send" editable={connected}
-            placeholder={connected?'Type a terminal command…':'Connect to enable terminal input'}
-            placeholderTextColor="#6E6F77" style={styles.input}/>
-          <Pressable onPress={sendText} disabled={!connected||!input.length}
-            style={[styles.sendButton,(!connected||!input.length)&&styles.disabledSend]}>
-            <Glyph name="arrow-up" size={19} color={connected&&input?'#141318':'#717078'}/>
-          </Pressable>
-        </View>
-      </View>
-
-      <Modal visible={settingsOpen} animationType="slide" presentationStyle="pageSheet"
-        onRequestClose={()=>setSettingsOpen(false)}>
-        <SafeAreaView edges={['top','bottom']} style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={()=>setSettingsOpen(false)} style={styles.modalClose}>
-              <Glyph name="x" size={23}/>
-            </Pressable>
-            <Text style={styles.modalTitle}>Connect workspace</Text>
-            <View style={{width:37}}/>
-          </View>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalContent}>
-            <View style={styles.connectionArtwork}><Glyph name="server" size={28} color={COLORS.accent}/></View>
-            <Text style={styles.modalHeading}>Your own Linux server.</Text>
-            <Text style={styles.modalSubtitle}>
-              Connect to your private terminal bridge. Your CLI sessions run on the Linux server, not on your phone.
-            </Text>
-            <Text style={styles.fieldLabel}>SECURE CONNECTION URL</Text>
-            <TextInput style={styles.field} value={gateway} onChangeText={setGateway}
-              keyboardType="url" autoCapitalize="none" autoCorrect={false}
-              placeholder="wss://terminal.yourdomain.com" placeholderTextColor="#71737B"/>
-            <Text style={styles.fieldLabel}>RUNTIME ACCESS TOKEN</Text>
-            <TextInput style={styles.field} value={token} onChangeText={setToken}
-              autoCapitalize="none" autoCorrect={false} secureTextEntry
-              placeholder="Server authentication token" placeholderTextColor="#71737B"/>
-            <View style={styles.helperRow}>
-              <Glyph name="lock" size={16} color={COLORS.accent}/>
-              <Text style={styles.helperText}>Saved in iOS secure storage. Requires an authenticated WSS gateway; the EC2 public IP alone is not a secure terminal URL.</Text>
-            </View>
-            {!!error&&<Text style={styles.modalError}>{error}</Text>}
-            <Pressable style={styles.connectButton} onPress={()=>void saveAndConnect()}>
-              <Text style={styles.connectButtonText}>Connect to {LABELS[agent]}</Text>
-              <Glyph name="arrow-right" size={19} color="#141318"/>
-            </Pressable>
-            <Text style={styles.disclaimer}>Interactive fullscreen TUIs still require full ANSI/PTY rendering support; this client currently supports basic terminal output and input.</Text>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+      <Pressable onPress={()=>void connect()} style={styles.iconButton} accessibilityLabel="Reconnect terminal">
+        <Glyph name="refresh-cw" size={19} color="#D1D0D5"/>
+      </Pressable>
     </View>
-  );
+    <View style={styles.terminalFrame}>
+      <View style={styles.terminalChrome}>
+        <View style={styles.chromeDots}>
+          <View style={[styles.chromeDot,{backgroundColor:'#E8777A'}]}/>
+          <View style={[styles.chromeDot,{backgroundColor:'#E2BC74'}]}/>
+          <View style={[styles.chromeDot,{backgroundColor:'#79C69A'}]}/>
+        </View>
+        <Text style={styles.chromeTitle} numberOfLines={1}>noethara · {LABELS[agent].toLowerCase()}</Text>
+        <Pressable onPress={()=>connected?disconnect():void connect()} style={styles.chromeAction}
+          accessibilityLabel={connected?'Disconnect terminal':'Reconnect terminal'}>
+          <Glyph name={connected?'wifi':'wifi-off'} size={15}
+            color={connected?COLORS.success:COLORS.muted}/>
+        </Pressable>
+      </View>
+      <ScrollView ref={scrollRef} style={styles.terminalScroll}
+        keyboardShouldPersistTaps="handled" contentContainerStyle={styles.terminalBody}
+        onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:false})}>
+        {!!output&&<Text selectable style={styles.outputText}>{output}</Text>}
+        {connected&&!output&&<View style={styles.connectionNotice}>
+          <ActivityIndicator color={COLORS.accent} size="small"/>
+          <Text style={styles.connectionNoticeText}>Connected. Loading CLI session…</Text>
+        </View>}
+        {status==='connecting'&&!output&&<View style={styles.connectingState}>
+          <ActivityIndicator color={COLORS.accent} size="small"/>
+          <Text style={styles.connectingText}>Connecting to Noethara Linux…</Text>
+        </View>}
+        {!connected&&status!=='connecting'&&!output&&<View style={styles.emptyState}>
+          <View style={styles.terminalLogo}><Glyph name="terminal" size={27} color={COLORS.accent}/></View>
+          <Text style={styles.emptyTitle}>Your cloud terminal.</Text>
+          <Text style={styles.emptyDescription}>Your Linux workspace is managed by Noethara. No SSH key or connection setup needed.</Text>
+          <Pressable onPress={()=>void connect()} style={styles.emptyAction}>
+            <Text style={styles.emptyActionText}>Reconnect</Text>
+            <Glyph name="refresh-cw" size={16} color="#17121E"/>
+          </Pressable>
+        </View>}
+        {!!error&&<View style={styles.errorRow}>
+          <Glyph name="alert-circle" color="#E2A092" size={16}/>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>}
+      </ScrollView>
+      <View style={styles.terminalFooter}>
+        <View style={styles.footerIndicator}/>
+        <Text style={styles.footerLabel}>{connected?'Connected to Linux runtime':'Workspace offline'}</Text>
+        <Text style={styles.footerLabel}>UTF-8</Text>
+      </View>
+    </View>
+    <View style={styles.commandBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
+        contentContainerStyle={styles.keyStrip}>
+        {([
+          {label:'esc',data:'\x1b'}, {label:'tab',data:'\t'}, {label:'ctrl+c',data:'\x03'},
+          {label:'↑',data:'\x1b[A'}, {label:'↓',data:'\x1b[B'},
+          {label:'←',data:'\x1b[D'}, {label:'→',data:'\x1b[C'},
+        ]).map(key=><Pressable key={key.label} onPress={()=>sendKey(key.data)}
+          disabled={!connected} style={[styles.key,!connected&&styles.disabledKey]}>
+          <Text style={styles.keyText}>{key.label}</Text>
+        </Pressable>)}
+      </ScrollView>
+      <View style={styles.inputRow}>
+        <Text style={styles.promptSymbol}>❯</Text>
+        <TextInput value={input} onChangeText={setInput} onSubmitEditing={sendText}
+          autoCapitalize="none" autoCorrect={false} spellCheck={false}
+          returnKeyType="send" editable={connected}
+          placeholder={connected?'Type a command…':'Noethara workspace offline'}
+          placeholderTextColor="#6E6F77" style={styles.input}/>
+        <Pressable onPress={sendText} disabled={!connected||!input.length}
+          style={[styles.sendButton,(!connected||!input.length)&&styles.disabledSend]}>
+          <Glyph name="arrow-up" size={19}
+            color={connected&&input?'#141318':'#717078'}/>
+        </Pressable>
+      </View>
+    </View>
+  </View>;
 }
 
 const styles=StyleSheet.create({

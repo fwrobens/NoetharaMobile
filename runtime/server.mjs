@@ -3,7 +3,9 @@
 // Supabase user authorization is required for EVERY WebSocket session.
 // Single-owner mode only until per-user isolated containers are implemented.
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const HOST = '127.0.0.1';
@@ -14,6 +16,18 @@ const ALLOWED_USERS = new Set((process.env.NOETHARA_ALLOWED_USER_IDS || '')
   .split(',').map(s=>s.trim()).filter(s=>/^[a-f0-9-]{36}$/i.test(s)));
 const WORKSPACE = process.env.NOETHARA_WORKSPACE || process.cwd();
 const AGENTS = new Set(['opencode','codex','claude']);
+// Global npm installs done as ubuntu use a per-user prefix. PM2 can have
+// an older PATH than the interactive SSH shell, so normalize it here.
+const EXEC_PATH = [join(homedir(),'.npm-global','bin'),join(homedir(),'.local','bin'),
+  process.env.PATH||'/usr/local/bin:/usr/bin:/bin'].join(':');
+const CLI_NAMES = {opencode:'OpenCode',codex:'Codex',claude:'Claude Code'};
+function isCliInstalled(name){
+  if(!AGENTS.has(name))return false;
+  const result=spawnSync('which',[name],{
+    env:{...process.env,PATH:EXEC_PATH},encoding:'utf8',timeout:1500,
+  });
+  return result.status===0;
+}
 // Fail closed. Never turn a valid self-signup account into full host shell access.
 if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || !ALLOWED_USERS.size) {
   console.error('Missing NOETHARA_SUPABASE_URL, NOETHARA_SUPABASE_PUBLISHABLE_KEY, or NOETHARA_ALLOWED_USER_IDS. Refusing to start.');
@@ -27,7 +41,8 @@ const server = createServer(async(req,res)=>{
       req.headers.authorization.slice(7) : '';
     const userId=await authenticate(bearer);
     res.writeHead(userId?200:401,{'content-type':'application/json'});
-    res.end(JSON.stringify(userId?{status:'awake',workspace:'managed',agents:[...AGENTS]}:
+    res.end(JSON.stringify(userId?{status:'awake',workspace:'managed',agents:[...AGENTS],
+      cliInstalled:Object.fromEntries([...AGENTS].map(name=>[name,isCliInstalled(name)]))}:
       {error:'Not authorized'}));
     return;
   }
@@ -69,13 +84,20 @@ wss.on('connection',(socket,req)=>{
       if(socket.readyState!==WebSocket.OPEN)return;
       if(!userId){deny('Account is not authorized for this Noethara workspace');return;}
       authed=true;clearTimeout(timer);
+      // Report a missing CLI clearly instead of spawning tmux and showing a
+      // misleading successful connection followed by an immediate exit.
+      if(!isCliInstalled(msg.agent)){
+        reply({type:'error',message:CLI_NAMES[msg.agent]+' CLI is not installed on your AWS server. In the EC2 Ubuntu terminal run: bash ~/NoetharaMobile/infra/aws/install-cli-agents.sh'});
+        socket.close(1008,'CLI not installed');
+        return;
+      }
       // Hard-coded agent name, isolated per-agent tmux session for the single owner.
       // Do not interpolate client text into a command string.
       const cli=msg.agent;
       const tmuxName='noethara-'+cli;
       const command='tmux -L noethara -u new-session -A -s '+tmuxName+' '+cli;
       terminal=spawn('script',['-q','-f','-c',command,'/dev/null'],{
-        cwd:WORKSPACE,env:{...process.env,TERM:'xterm-256color',NO_COLOR:'1'},
+        cwd:WORKSPACE,env:{...process.env,PATH:EXEC_PATH,TERM:'xterm-256color',NO_COLOR:'1'},
         stdio:['pipe','pipe','pipe'],
       });
       terminal.stdout.on('data',chunk=>reply({type:'output',data:chunk.toString('utf8').slice(0,24000)}));

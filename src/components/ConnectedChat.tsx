@@ -55,11 +55,13 @@ export function ConnectedChat({
   const scrollRef=useRef<ScrollView>(null);
   const didStart=useRef(false);
   const mounted=useRef(true);
+  // A newly saved chat id is not a user selection from the history drawer.
+  const createdChatId=useRef<string|null>(null);
   useEffect(()=>{
     mounted.current=true;
     // A specific conversation is authoritative; never show a previous thread
     // while loading a selected conversation from Supabase.
-    if(conversationId){
+    if(conversationId && createdChatId.current !== conversationId){
       setLoadingHistory(true);
       setMessages([]);
       setStatus('');
@@ -99,6 +101,7 @@ export function ConnectedChat({
   async function saveMessage(id:string|null,entry:ChatEntry):Promise<string|null>{
     try{
       const nextId=await persistChat(id,[entry]);
+      if(!id)createdChatId.current=nextId;
       if(mounted.current){setChatId(nextId);onChatSaved?.(nextId);}
       return nextId;
     }catch(e){

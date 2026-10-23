@@ -52,7 +52,7 @@ export function ConnectedChat({
   const {model,setModel}=useModelPreference();
   const [modelPickerOpen,setModelPickerOpen]=useState(false);
   const [chatId,setChatId]=useState<string|null>(conversationId??null);
-  const scrollRef=useRef<ScrollView>(null);
+  const scrollRef=useRef<React.ElementRef<typeof ScrollView>>(null);
   const didStart=useRef(false);
   const mounted=useRef(true);
   // A newly saved chat id is not a user selection from the history drawer.

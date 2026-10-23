@@ -43,45 +43,96 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
     setStatus('offline');
   };
   async function connect(){
-    disconnect();setStatus('connecting');setError('');
-    try{
+    disconnect();
+    setStatus('connecting');
+    setError('');
+    const agentLabel=LABELS[agent];
+    try {
       const session=await getSession();
       if(!alive.current)return;
-      if(!session?.access_token)throw new Error('Please sign in to your Noethara account first.');
+      if(!session?.access_token){
+        throw new Error('Sign in to Noethara before opening the managed Linux terminal.');
+      }
+
+      // Diagnose the same authenticated HTTPS endpoint used by the Awake badge.
+      // A valid Supabase session isn't necessarily on this server's owner allowlist.
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),10000);
+      let statusResponse:Response;
+      try {
+        statusResponse=await fetch('https://terminal.noethara.cloud/status',{
+          method:'GET',
+          headers:{Authorization:'Bearer '+session.access_token},
+          signal:controller.signal,
+        });
+      }catch(error){
+        const reason=error instanceof Error?error.message:'Network request failed';
+        throw new Error('HTTPS connectivity check failed ('+reason+'). Confirm the iPhone can open terminal.noethara.cloud.');
+      }finally{clearTimeout(timeout);}
+      if(!alive.current)return;
+      if(statusResponse.status===401||statusResponse.status===403){
+        throw new Error('Noethara login was rejected by the Linux workspace (HTTP '+statusResponse.status+'). Sign out and back in with the account whose Supabase User UID was allowed on AWS.');
+      }
+      if(!statusResponse.ok){
+        throw new Error('The Linux gateway returned HTTP '+statusResponse.status+'. Check PM2 and Cloudflare Tunnel on AWS.');
+      }
+
+      // The server is reachable and the account is authorized. Any failure
+      // after this point is specifically in the WebSocket/CLI layer.
       const socket=new WebSocket(MANAGED_ENDPOINT);
       wsRef.current=socket;
+      const handshakeTimer=setTimeout(()=>{
+        if(wsRef.current===socket && socket.readyState!==WebSocket.OPEN){
+          setError('HTTPS works, but the WebSocket handshake timed out for '+agentLabel+'.');
+          socket.close();
+          setStatus('offline');
+        }
+      },12000);
       socket.onopen=()=>{
-        if(wsRef.current===socket)socket.send(JSON.stringify({
-          type:'auth',token:session.access_token,agent,
-        }));
+        clearTimeout(handshakeTimer);
+        if(wsRef.current===socket){
+          socket.send(JSON.stringify({type:'auth',token:session.access_token,agent}));
+        }
       };
-      socket.onmessage=(event)=>{
+      socket.onmessage=event=>{
         if(wsRef.current!==socket)return;
         let response:Packet;
         try{response=JSON.parse(String(event.data));}
         catch{append(String(event.data));return;}
-        if(response.type==='ready'){setStatus('online');setError('');}
-        else if(response.type==='output')append(response.data||'');
-        else if(response.type==='error'){
-          setError(response.message||'Unable to authorize the Linux workspace.');
+        if(response.type==='ready'){
+          setStatus('online');
+          setError('');
+        }else if(response.type==='output'){
+          append(response.data||'');
+        }else if(response.type==='error'){
+          setError(response.message||'The Linux gateway rejected this session.');
           setStatus('offline');
           socket.close();
         }else if(response.type==='exit'){
           append('\n[CLI session ended]\n');
+          setError(agentLabel+' exited. Check the installed CLI on the AWS server.');
           socket.close();
         }
       };
       socket.onerror=()=>{
         if(wsRef.current!==socket)return;
+        clearTimeout(handshakeTimer);
         setStatus('offline');
-        setError('The Noethara managed workspace is not reachable yet. Check the server connection.');
+        setError(current=>current||'The authenticated HTTPS check passed, but the WebSocket failed. Check the terminal gateway WebSocket upgrade and PM2 logs.');
       };
-      socket.onclose=()=>{
-        if(wsRef.current===socket){wsRef.current=null;setStatus('offline');}
+      socket.onclose=event=>{
+        clearTimeout(handshakeTimer);
+        if(wsRef.current!==socket)return;
+        wsRef.current=null;
+        setStatus('offline');
+        // Do not overwrite the specific error sent in an authorized gateway message.
+        setError(current=>current||(event.code===1000?'CLI session disconnected.':
+          'WebSocket closed (code '+event.code+(event.reason?', '+event.reason:'')+'). Check terminal gateway logs.'));
       };
-    }catch(e){
+    }catch(error){
+      if(!alive.current)return;
       setStatus('offline');
-      setError(e instanceof Error?e.message:'Authentication unavailable.');
+      setError(error instanceof Error?error.message:'Failed to connect to the managed workspace.');
     }
   }
   useEffect(()=>{

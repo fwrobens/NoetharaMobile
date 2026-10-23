@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   supabase, getSession, signInWithGitHub, signInWithGoogle, signInWithEmail, signUpWithEmail,
-  logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI, getGitHubToken, getGitHubConnection,
+  logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI,
   connectGitHubForAccount, verifyGitHubConnection,
   type Repo, type GithubEntry,
 } from '../lib/noetharaBackend';

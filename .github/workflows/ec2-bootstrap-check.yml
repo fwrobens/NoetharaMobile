@@ -20,6 +20,7 @@ jobs:
           bash -n infra/aws/provision-live-server.sh
           bash -n infra/aws/deploy.sh
           bash -n infra/aws/setup-runtime.sh
+          bash -n infra/aws/activate-managed-terminal.sh
       - name: Check Node.js runtime syntax
         run: |
           node --check runtime/health.mjs

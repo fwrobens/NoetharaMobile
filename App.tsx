@@ -59,7 +59,7 @@ function SoftPanel({ children, style }: { children: React.ReactNode; style?: any
         colors={['rgba(255,255,255,0.93)', 'rgba(255,255,255,0.55)', 'rgba(246,242,236,0.27)']}
         start={{ x: 0.03, y: 0 }}
         end={{ x: 0.85, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       {children}
     </View>
@@ -122,20 +122,20 @@ function OrbitalHero({ size }: { size: number }) {
   const alpha = halo.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: alpha }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: alpha }]}>
         <Svg width={size} height={size} viewBox="0 0 250 250">
           <Circle cx="125" cy="125" r="114" stroke="#DAD6D1" strokeWidth="0.8" fill="none" />
           <Circle cx="125" cy="125" r="77" stroke="#D5D0CA" strokeWidth="1" fill="none" />
         </Svg>
       </Animated.View>
-      <Animated.View style={[StyleSheet.absoluteFillObject, { transform: [{ rotate: rotation }] }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ rotate: rotation }] }]}>
         <View style={[styles.orbDot, { top: '17%', left: '16%', backgroundColor: '#7656C7' }]} />
         <View style={[styles.orbDot, { top: '46%', right: '-1%', backgroundColor: '#DC9422' }]} />
         <View style={[styles.orbDot, { bottom: '16%', left: '31%', width: 12, height: 12, backgroundColor: '#C9C9C9' }]} />
       </Animated.View>
       <Animated.View style={[styles.terminalTile, { transform: [{ translateY: translation }] }]}>
         <LinearGradient colors={['#FFFFFF', '#FBFAF8', '#F4F1ED']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFillObject, { borderRadius: 25 }]} />
+          style={[StyleSheet.absoluteFill, { borderRadius: 25 }]} />
         <Icon name="terminal" size={36} color="#4C4D4F" />
       </Animated.View>
     </View>
@@ -414,11 +414,11 @@ function NavigationDrawer({
   const backdropOpacity = progress.interpolate({inputRange:[0,1],outputRange:[0,0.34],extrapolate:'clamp'});
   return (
     <View pointerEvents={active?'auto':'none'} style={styles.drawerOverlay}>
-      <Animated.View style={[StyleSheet.absoluteFillObject,{opacity:backdropOpacity,backgroundColor:'#101012'}]}>
-        <Pressable accessibilityLabel="Close menu" onPress={onClose} style={StyleSheet.absoluteFillObject}/>
+      <Animated.View style={[StyleSheet.absoluteFill,{opacity:backdropOpacity,backgroundColor:'#101012'}]}>
+        <Pressable accessibilityLabel="Close menu" onPress={onClose} style={StyleSheet.absoluteFill}/>
       </Animated.View>
       <Animated.View style={[styles.drawerShell,{width:drawerWidth,transform:[{translateX:offset}]}]}>
-        <LinearGradient colors={['#FEFDFC','#FCFBF9','#F9F7F4']} style={StyleSheet.absoluteFillObject}/>
+        <LinearGradient colors={['#FEFDFC','#FCFBF9','#F9F7F4']} style={StyleSheet.absoluteFill}/>
         <SafeAreaView style={styles.fill} edges={['top','bottom']}>
           <View style={styles.drawerBrand}><Text style={styles.drawerBrandText}>Noethara Dev</Text><View style={styles.liveDot}/></View>
           <View style={{gap:4,marginTop:20}}>
@@ -707,7 +707,7 @@ const styles = StyleSheet.create({
   toolbarContents: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, gap: 3, width: '100%' },
   toolbarKey: { backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: 10, minWidth: 0, height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, shadowColor: '#8B8992', shadowOpacity: 0.07, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6 },
   toolbarLabel: { fontSize: 9, color: COLORS.ink, fontWeight: '500' },
-  drawerOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
+  drawerOverlay: { ...StyleSheet.absoluteFill, zIndex: 100 },
   drawerShell: { flex: 1, height: '100%', borderTopRightRadius: 31, borderBottomRightRadius: 31, overflow: 'hidden', shadowColor: '#141414', shadowOpacity: 0.18, shadowOffset: { width: 10, height: 0 }, shadowRadius: 25, elevation: 16 },
   drawerBrand: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 22, marginTop: 32, gap: 11 },
   drawerBrandText: { fontSize: 22, fontWeight: '600', color: COLORS.ink },

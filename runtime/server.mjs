@@ -65,7 +65,7 @@ async function authenticate(accessToken) {
 }
 wss.on('connection',(socket,req)=>{
   if(++clients>3){clients--;socket.close(1008,'Connection limit');return;}
-  let authed=false,authenticating=false,terminal=null;
+  let authed=false,authenticating=false,terminal=null,tmuxName='';
   const reply=packet=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify(packet));};
   const deny=message=>{reply({type:'error',message});socket.close(1008,'Unauthorized');};
   const timer=setTimeout(()=>{if(!authed)deny('Login validation timed out');},12000);
@@ -94,10 +94,10 @@ wss.on('connection',(socket,req)=>{
       // Hard-coded agent name, isolated per-agent tmux session for the single owner.
       // Do not interpolate client text into a command string.
       const cli=msg.agent;
-      const tmuxName='noethara-'+cli;
+      tmuxName='noethara-'+cli;
       const command='tmux -L noethara -u new-session -A -s '+tmuxName+' '+cli;
       terminal=spawn('script',['-q','-f','-c',command,'/dev/null'],{
-        cwd:WORKSPACE,env:{...process.env,PATH:EXEC_PATH,TERM:'xterm-256color',NO_COLOR:'1'},
+        cwd:WORKSPACE,env:{...process.env,PATH:EXEC_PATH,TERM:'xterm-256color',COLORTERM:'truecolor'},
         stdio:['pipe','pipe','pipe'],
       });
       terminal.stdout.on('data',chunk=>reply({type:'output',data:chunk.toString('utf8').slice(0,24000)}));
@@ -110,6 +110,16 @@ wss.on('connection',(socket,req)=>{
     if(msg?.type==='input' && typeof msg.data==='string' &&
        msg.data.length<=2048 && terminal?.stdin?.writable){
       terminal.stdin.write(msg.data);
+    }else if(msg?.type==='resize' &&
+      Number.isInteger(msg.cols) && Number.isInteger(msg.rows) &&
+      msg.cols>=20 && msg.cols<=240 && msg.rows>=8 && msg.rows<=120 && tmuxName){
+      // CLI full-screen layouts need the real device viewport dimensions.
+      // Use argument arrays, never a client-controlled shell command.
+      const size=spawn('tmux',['-L','noethara','resize-window',
+        '-t',tmuxName,'-x',String(msg.cols),'-y',String(msg.rows)],{
+        env:{...process.env,PATH:EXEC_PATH},stdio:'ignore'
+      });
+      size.on('error',()=>{});
     }else if(msg?.type==='ping'){reply({type:'pong'});}
   });
   socket.on('close',()=>{

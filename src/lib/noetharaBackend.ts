@@ -81,6 +81,10 @@ export async function handleOAuthRedirect(url: string, providerHint?: 'github' |
   if (accessToken && refreshToken) {
     const result = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
     if (result.error) throw result.error;
+    if (providerHint === 'github' && result.data.session) {
+      const providerToken=values.get('provider_token')||result.data.session.provider_token;
+      if (providerToken) await persistGitHubToken(providerToken,result.data.session.user.id);
+    }
     return result.data.session;
   }
   const code = values.get('code');
@@ -129,6 +133,44 @@ export async function signInWithProvider(provider: 'github' | 'google') {
   }
   const session = await handleOAuthRedirect(result.url, provider);
   if (!session) throw Error('OAuth did not create a valid Supabase session.');
+  return session;
+}
+// Reauthorize repository access without silently replacing the user's
+// existing email/Google Supabase account with a different GitHub account.
+export async function connectGitHubForAccount(): Promise<Session> {
+  const previous=await getSession();
+  if(!previous) return signInWithGitHub();
+  const {data:identities,error:identityError}=await supabase.auth.getUserIdentities();
+  if(identityError)throw identityError;
+  const linked=Boolean(identities?.identities?.some(identity=>identity.provider==='github'));
+  if(linked){
+    const linkedSession=await signInWithGitHub();
+    if(linkedSession.user.id!==previous.user.id) {
+      await supabase.auth.setSession({
+        access_token:previous.access_token,refresh_token:previous.refresh_token,
+      });
+      throw Error('This GitHub identity belongs to another Noethara account. Your original login was restored.');
+    }
+    return linkedSession;
+  }
+  const redirectTo=getOAuthReturnUrl();
+  const {data,error}=await supabase.auth.linkIdentity({
+    provider:'github',
+    options:{redirectTo,skipBrowserRedirect:true,scopes:'repo read:user user:email'},
+  });
+  if(error){
+    throw Error('Cannot link GitHub to your current account. Enable manual identity linking in Supabase Auth settings, then retry. '+error.message);
+  }
+  if(!data?.url)throw Error('GitHub identity-linking URL was not returned.');
+  const result=await WebBrowser.openAuthSessionAsync(data.url,redirectTo);
+  if(result.type!=='success')throw Error('GitHub authorization did not return to Noethara.');
+  const session=await handleOAuthRedirect(result.url,'github');
+  if(!session||session.user.id!==previous.user.id){
+    await supabase.auth.setSession({
+      access_token:previous.access_token,refresh_token:previous.refresh_token,
+    });
+    throw Error('GitHub was not linked to your existing Noethara account.');
+  }
   return session;
 }
 export const signInWithGitHub = () => signInWithProvider('github');

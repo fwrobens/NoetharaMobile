@@ -90,3 +90,13 @@ See [infra/aws/README.md](infra/aws/README.md) for the CloudFormation configurat
 The AWS instance is **not automatically provisioned**: this chat has no live AWS EC2 account connector. The `infra/aws/deploy.sh` script must be run in a trusted AWS-authenticated environment. It creates a local SSH key file (never committed to GitHub) and prints the real Elastic IP only if CloudFormation succeeds.
 
 The mobile client cannot itself host CLI processes. The installed OpenCode/Codex/Claude binaries need their own authorized login. Do not expose the raw terminal bridge publicly. HTTPS requires a domain and certificate.
+
+## Terminal interface update
+
+The terminal launcher is now implemented in `src/components/TerminalDashboard.tsx`, with an ivory workspace status card and **three separate CLI entry points**. There are no mock project lists or nested agent tabs.
+
+`src/components/RemoteTerminal.tsx` is now an edge-to-edge dark terminal screen. Server URL and token fields live in a separate **Connection settings** sheet instead of occupying the terminal. Credentials are restored from Expo SecureStore; saved gateways reconnect when an agent screen opens. Controls include ESC, TAB, Ctrl+C and directional arrows.
+
+**Important limitations:** this is a UI and connection-layer update; a full ANSI/xterm renderer is **not** yet implemented. It cannot faithfully display complex full-screen TUIs, and the private EC2 WebSocket gateway must be secured and reachable at a real `wss://` address before live sessions work.
+
+If Expo Go still shows tabs and the large inline setup form, it is running an older cached revision. Sync from `main`, install dependencies and restart the tunnel with `npx expo start --clear --tunnel`. Confirm the new screen has a dark full-height terminal and a settings **sheet**, not inline credential fields.

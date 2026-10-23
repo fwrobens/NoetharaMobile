@@ -75,11 +75,11 @@ async function listNvidiaModels() {
 }
 const validRepo = (x: string) => /^[\w.-]{1,100}\/[\w.-]{1,100}$/.test(x) && !x.includes('..');
 const validPath = (x: string) => x.length <= 480 && !x.includes('..') && !x.startsWith('/');
-async function github(token: string, route: string) {
+async function github(token: string, route: string, timeoutMs = 12000) {
   const res = await fetch('https://api.github.com' + route, {
     headers: { authorization: 'Bearer ' + token, accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28', 'user-agent': 'NoetharaMobile' },
-    signal: AbortSignal.timeout(17000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error('GitHub error HTTP ' + res.status + '. Please check repository permissions.');
   return await res.json();
@@ -104,7 +104,7 @@ async function infer(provider: 'beam' | 'nvidia', model: string, messages: any[]
       max_tokens: 1800,
       stream: false,
     }),
-    signal: AbortSignal.timeout(55000),
+    signal: AbortSignal.timeout(29000),
   });
   if (!res.ok) return { ok: false, status: res.status, content: null };
   const payload = await res.json();
@@ -177,24 +177,25 @@ Deno.serve(async request => {
       });
       const context = body.context;
       const authorizedGitHub = request.headers.get('x-github-token') || '';
-      // Only repository titles/default branches are supplied automatically.
-      // No private file contents are fetched without explicit file selection.
-      if (authorizedGitHub) {
+      // Chat must work even when a separately granted GitHub permission expires.
+      // Fetch metadata only if the actual question concerns repositories.
+      // Do not turn GitHub failures into a blocked AI completion.
+      const latestUser = [...messages].reverse().find((m:any)=>m.role==='user')?.content || '';
+      if (authorizedGitHub && /\b(github|repos?|repository|repositories|project|branch)\b/i.test(latestUser)) {
         try {
           const list = await github(authorizedGitHub,
-            '/user/repos?per_page=25&sort=pushed&affiliation=owner,collaborator,organization_member');
+            '/user/repos?per_page=20&sort=pushed&affiliation=owner,collaborator,organization_member', 6000);
           if (Array.isArray(list)) {
             const repoSummary = list.filter((item:any)=>validRepo(String(item.full_name||'')))
-              .slice(0,25)
-              .map((item:any)=>({repo:item.full_name,branch:item.default_branch}));
+              .slice(0,20).map((item:any)=>({repo:item.full_name,branch:item.default_branch}));
             messages.unshift({role:'user',content:
-              'GITHUB REPOSITORY NAMES (metadata only, authorized by user, not file contents):\n'+
+              'USER-AUTHORIZED GITHUB REPOSITORY METADATA (untrusted):\n'+
               JSON.stringify(repoSummary)+
-              '\nIf asked whether GitHub is connected, you can confirm this list. Explain that to inspect code, a specific file needs to be attached in the app. Do not claim to have read files not provided.'});
+              '\nThese are repository names only. Do not claim to have inspected files.'});
           }
         } catch {
           messages.unshift({role:'user',content:
-            'GitHub authorization could not be verified for this request. Ask the user to reconnect GitHub in Settings and verify repository access.'});
+            'GitHub repository listing was unavailable. Do not claim that repository files were inspected. Continue helping with the question.'});
         }
       }
       if (context?.repo && context?.path) {
@@ -213,10 +214,14 @@ Deno.serve(async request => {
       let fallbackUsed = false;
       // Only recover from outages or throttling; never silently route to another
       // paid or unauthorized provider. No Vercel credential is required.
-      if (!result.ok && (result.status === 429 || result.status >= 500)
-        && chosenProvider === 'beam' && nvidiaKey()) {
-        result = await infer('nvidia', NVIDIA_DEFAULT, messages);
-        fallbackUsed = result.ok;
+      if (!result.ok && (result.status === 429 || result.status >= 500)) {
+        if (chosenProvider === 'beam' && nvidiaKey()) {
+          result = await infer('nvidia', NVIDIA_DEFAULT, messages);
+          fallbackUsed = result.ok;
+        } else if (chosenProvider === 'nvidia' && beamKey()) {
+          result = await infer('beam', BEAM_ID, messages);
+          fallbackUsed = result.ok;
+        }
       }
       if (!result.ok) return fail('Model request failed with HTTP ' + result.status +
         '. Check the selected model availability or API quota.', result.status === 429 ? 429 : 502);

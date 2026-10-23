@@ -12,8 +12,7 @@
       "bundleIdentifier": "com.noethara.dev"
     },
     "android": {
-      "package": "com.noethara.dev",
-      "edgeToEdgeEnabled": true
+      "package": "com.noethara.dev"
     },
     "experiments": {
       "tsconfigPaths": true

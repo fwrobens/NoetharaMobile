@@ -157,9 +157,8 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
                  setGithubStatus('Connected · '+count+' repositories available');
                })}/>
               <Action title="Verify GitHub repository access" disabled={loading} onPress={()=>run(async()=>{
-                if (!await getGitHubConnection()) throw Error('You are signed in, but the GitHub repository token is missing. Choose Connect GitHub again.');
-                const {repos} = await noetharaAPI.repos();
-                setGithubStatus('Connected · '+repos.length+' repositories available');
+                const count=await verifyGitHubConnection();
+                setGithubStatus('Connected · '+count+' repositories available');
               })}/>
               <Text style={styles.fieldText}>{githubStatus}</Text>
               <Action title="Browse GitHub repositories" onPress={openRepos}/>

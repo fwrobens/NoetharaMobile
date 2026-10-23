@@ -26,6 +26,7 @@ import { ConnectedChat } from './src/components/ConnectedChat';
 import { AuthScreen } from './src/components/AuthScreen';
 import { LocalPlayground } from './src/components/LocalPlayground';
 import { RemoteTerminal } from './src/components/RemoteTerminal';
+import { TerminalDashboard } from './src/components/TerminalDashboard';
 import type { SelectedProject } from './src/lib/githubRepoContext';
 import { supabase, getSession, getPreferredModel, savePreferredModel, listConversations, recoverPendingOAuthRedirect, handleOAuthRedirect, type ConversationSummary, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
@@ -337,73 +338,6 @@ function Workspace({
 function Badge({ children }: { children: React.ReactNode }) {
   return <View style={styles.badge}><Text style={styles.badgeText}>{children}</Text></View>;
 }
-function TerminalsPage({ onBack, onAgent }: { onBack: () => void; onAgent: (agent: 'opencode' | 'codex' | 'claude') => void }) {
-  const { width } = useWindowDimensions();
-  const shortcuts: Array<{ label: string; icon: FeatherName; color: string; bg: string }> = [
-    { label: 'OpenCode', icon: 'code', color: '#7556C0', bg: '#F1ECF9' },
-    { label: 'Codex', icon: 'terminal', color: '#705AC9', bg: '#F0EEFB' },
-    { label: 'Claude Code', icon: 'sun', color: '#D67755', bg: '#FBEAE4' },
-  ];
-  const projects = [
-    { name: 'NoetharaMobile', folder: '/workspace/noetharamobile', color: '#7760C9' },
-    { name: 'Starter App', folder: '/workspace/starter-app', color: '#268F60' },
-    { name: 'Dev Tools', folder: '/workspace/dev-tools', color: '#CC942D' },
-  ];
-  return (
-    <View style={styles.fill}>
-      <View style={styles.pageHeading}>
-        <Tap onPress={onBack} style={styles.backButton}><Icon name="chevron-left" size={28} /></Tap>
-        <Text style={styles.bigHeading}>Terminals</Text>
-        <View style={{ flex: 1 }} />
-        <Badge>●  Preview</Badge>
-        <Tap onPress={() => onAgent('opencode')} style={{ padding: 8 }}>
-          <Icon name="more-horizontal" size={25} />
-        </Tap>
-      </View>
-      <ScrollView style={styles.fill} contentContainerStyle={[styles.sectionScroll, { width: Math.min(width, 520) }]} showsVerticalScrollIndicator={false}>
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionTitle}>Your shortcuts</Text>
-          <Tap onPress={() => onAgent('opencode')}>
-            <Icon name="plus" size={23} color={COLORS.mutedDark} />
-          </Tap>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ gap: 11, paddingVertical: 5, paddingRight: 6 }}>
-          {shortcuts.map(s => <Tap key={s.label} onPress={() => onAgent(s.label === 'Codex' ? 'codex' : s.label === 'Claude Code' ? 'claude' : 'opencode')}>
-            <SoftPanel style={styles.agentCard}>
-              <View style={[styles.agentIcon, { backgroundColor: s.bg }]}><Icon name={s.icon} size={26} color={s.color} /></View>
-              <View style={styles.agentCardBottom}><Text style={styles.agentText}>{s.label}</Text><Icon name="chevron-right" size={14} color={COLORS.mutedDark} /></View>
-            </SoftPanel>
-          </Tap>)}
-        </ScrollView>
-        <View style={[styles.sectionHeading, { marginTop: 34 }]}>
-          <Text style={styles.sectionTitle}>Projects</Text>
-          <Text style={styles.sectionNote}>Remote runtime required</Text>
-        </View>
-        <Tap onPress={() => onAgent('opencode')}><SoftPanel style={styles.featureProject}>
-          <View style={styles.projectIcon}><Icon name="folder" size={28} /></View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={styles.projectName}>Home</Text><Text style={styles.projectMeta}>/home/workspace</Text>
-            <Text style={styles.projectMeta}>1 demo terminal</Text>
-            <View style={{ alignSelf: 'flex-start' }}><Badge>OpenCode · Demo</Badge></View>
-          </View>
-          <Icon name="chevron-right" size={21} color={COLORS.mutedDark} />
-        </SoftPanel></Tap>
-        <View style={[styles.sectionHeading, { marginTop: 36 }]}>
-          <Text style={styles.sectionTitle}>Recent projects</Text><Text style={styles.sectionNote}>Examples</Text>
-        </View>
-        {projects.map(p => <SoftPanel key={p.name} style={styles.recentProject}>
-          <View style={[styles.projectIcon, { backgroundColor: p.color + '17' }]}><Icon name="folder" color={p.color} size={25} /></View>
-          <View style={{ flex: 1, gap: 4 }}><Text style={styles.projectName}>{p.name}</Text><Text style={styles.projectMeta}>{p.folder}</Text><Text style={styles.projectMeta}>Demo workspace</Text></View>
-          <Icon name="chevron-right" color={COLORS.mutedDark} size={21} />
-        </SoftPanel>)}
-        <Tap onPress={() => onAgent('opencode')} style={styles.newProjectButton}>
-          <Icon name="plus" size={22} color="white" /><Text style={styles.newProjectLabel}>New</Text>
-        </Tap>
-      </ScrollView>
-    </View>
-  );
-}
 function ChatPage({ onMenu, latest }: { onMenu: () => void; latest: string }) {
   const [message, setMessage] = useState('');
   const [conversation, setConversation] = useState<string[]>(latest ? [latest] : []);
@@ -680,7 +614,7 @@ function RootApp() {
               send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
               setProvider={setProvider} openModelPicker={()=>setShowHomeModels(true)}
               quality={quality} setQuality={setQuality}/>}
-            {page==='terminals'&&<TerminalsPage onBack={()=>go('workspace')} onAgent={openTerminal}/>}
+            {page==='terminals'&&<TerminalDashboard onBack={()=>go('workspace')} onAgent={openTerminal}/>}
             {page==='terminal'&&<RemoteTerminal agent={terminalAgent} onBack={()=>go('terminals')}/>}
             {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
               onSettings={()=>go('settings')} onFiles={()=>go('files')}

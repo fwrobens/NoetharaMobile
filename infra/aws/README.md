@@ -1,3 +1,33 @@
+# Managed Linux workspace via Cloudflare (October 2026)
+
+**Cloudflare setup already created:** `noethara-terminal` (Tunnel ID `0e21ab61-7710-45ed-bd2f-ff7d5889751e`), configured to proxy `terminal.noethara.cloud` to `http://127.0.0.1:8789` on the EC2 host. It is currently **inactive**. The DNS record is deliberately unpublished until the hardened gateway and connector are verified.
+
+**Mobile behavior:** The Expo app automatically connects to `wss://terminal.noethara.cloud` using the current Supabase access token. Users do not enter an EC2 address, Linux credentials or terminal token.
+
+**Server-side authorization:** `runtime/server.mjs` calls Supabase Auth to verify the access token and allows only UUIDs explicitly listed in the protected `NOETHARA_ALLOWED_USER_IDS` environment setting. In this initial single-owner deployment, all CLI processes run as the same Linux user. **Do not enable other users** until isolated per-user containers, storage, resource limits and permission separation are implemented.
+
+## Activate on existing EC2 (one-time administrator task)
+
+Use the machine's existing SSH key to connect to the **correct instance**. Previous records contain two different EC2 IP addresses; check your EC2 console rather than guessing. Don't paste private keys or tunnel tokens into chat.
+
+From the existing repository checkout on EC2:
+
+```bash
+cd ~/NoetharaMobile
+git pull --ff-only origin main
+bash infra/aws/activate-managed-terminal.sh
+```
+
+If the checkout is at `~/noetharamobile`, run from that directory instead. You will need the **Supabase Authentication user UUID** (Supabase dashboard → Authentication → Users) and the Cloudflare Tunnel *connector token* (Zero Trust → Networks → Tunnels → `noethara-terminal` → install connector). The script prompts for the connector token without echoing it. Both are administrator-only setup values and must not go in your mobile app.
+
+After starting, verify `pm2 status`, `sudo systemctl status cloudflared`, and `curl -i http://127.0.0.1:8789/status`. An unauthenticated status request **must return HTTP 401**, not terminal contents or shell access. Check the old Nginx setup: if public port 80 still forwards to the terminal, remove that route and restrict inbound rules. Rotate/revoke the old shared terminal token shown in a screenshot; the new gateway ignores it.
+
+**After the connector is healthy and the authorized gateway verified:** create a proxied Cloudflare CNAME `terminal.noethara.cloud` pointing to `0e21ab61-7710-45ed-bd2f-ff7d5889751e.cfargotunnel.com`. Do not create this DNS record early. Then test an authenticated WebSocket from Expo Go.
+
+OpenCode, Codex and Claude Code still require their individual CLI installations and supported provider authorization. Interactive full-screen terminal rendering is not yet at feature parity with Cosyra.
+
+---
+
 # Existing live EC2: noethara-server (Ohio)
 
 **Use this section for your already-running EC2 instance. Do not deploy the separate CloudFormation stack below.**

@@ -20,6 +20,7 @@ export function TerminalDashboard({onBack,onAgent}:{
 }) {
   const [state,setState]=useState<State>('checking');
   const [message,setMessage]=useState('');
+  const [cliInstalled,setCliInstalled]=useState<Partial<Record<Agent,boolean>>|null>(null);
   async function refresh(){
     setState('checking');setMessage('');
     try{
@@ -32,7 +33,11 @@ export function TerminalDashboard({onBack,onAgent}:{
           headers:{authorization:'Bearer '+session.access_token},
           signal:abort.signal,
         });
-        if(r.ok){setState('awake');return;}
+        if(r.ok){
+          const payload=await r.json() as {cliInstalled?:Partial<Record<Agent,boolean>>};
+          setCliInstalled(payload.cliInstalled||null);
+          setState('awake');return;
+        }
         setMessage(r.status===401?'Your account is not authorized for this workspace.':
           'The Linux workspace is not available yet.');
       } finally {clearTimeout(timeout);}
@@ -74,7 +79,7 @@ export function TerminalDashboard({onBack,onAgent}:{
           </View>
           <View>
             <Text style={styles.agentTitle}>{item.title}</Text>
-            <Text style={styles.agentMeta}>{item.description}</Text>
+            <Text style={styles.agentMeta}>{cliInstalled?.[item.id]===false?'Install CLI on AWS':item.description}</Text>
           </View>
         </Pressable>)}
       </ScrollView>

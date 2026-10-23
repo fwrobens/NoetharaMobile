@@ -12,5 +12,10 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "supabase/functions/**",
+    "runtime/**"
   ]
 }

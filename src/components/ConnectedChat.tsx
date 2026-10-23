@@ -95,7 +95,17 @@ export function ConnectedChat({
         history=[{role:'user',content:'An attached GitHub project could not be read. Do not pretend you inspected its files. Explain any limitation if the user requests repository-specific information.'},...history];
       }
     }
-    const result=await noetharaAPI.chat(history,attachedFile??undefined,modelId);
+    let result:Awaited<ReturnType<typeof noetharaAPI.chat>>;
+    try {
+      result=await noetharaAPI.chat(history,attachedFile??undefined,modelId);
+    }catch(e){
+      const reason=e instanceof Error?e.message:'';
+      if(!attachedFile || !/github|repository|reconnect|file.*access|authorization|permission/i.test(reason))throw e;
+      // Don't let a revoked GitHub file permission break unrelated AI chat.
+      const safe=[{role:'user' as const,content:'An attached GitHub file was inaccessible. Do not claim to have read its contents.'},...history];
+      result=await noetharaAPI.chat(safe,undefined,modelId);
+      contextWarning+='GitHub file could not be loaded; response is not based on that file. ';
+    }
     return {result,contextWarning};
   }
   async function saveMessage(id:string|null,entry:ChatEntry):Promise<string|null>{

@@ -33,7 +33,6 @@ const cleanAnsi = (s: string) => s
 export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
   const [gateway,setGateway] = useState('');
   const [token,setToken] = useState('');
-  const [loaded,setLoaded] = useState(false);
   const [settingsOpen,setSettingsOpen] = useState(false);
   const [status,setStatus] = useState<Connection>('offline');
   const [error,setError] = useState('');
@@ -42,7 +41,6 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
   const wsRef = useRef<WebSocket|null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const alive = useRef(true);
-  const everReady = useRef(false);
 
   const append = (next: string) => {
     setLines(previous => (previous + cleanAnsi(next)).slice(-45000));
@@ -82,7 +80,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
       try {packet=JSON.parse(String(event.data));}
       catch {append(String(event.data));return;}
       if(packet.type==='ready'){
-        authenticated=true;everReady.current=true;
+        authenticated=true;
         setStatus('online');setError('');
       } else if(packet.type==='output') append(packet.data||'');
       else if(packet.type==='error'){
@@ -114,10 +112,10 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
     Promise.all([SecureStore.getItemAsync(URL_KEY),SecureStore.getItemAsync(TOKEN_KEY)])
       .then(([u,t])=>{
         if(!alive.current)return;
-        setGateway(u||'');setToken(t||'');setLoaded(true);
+        setGateway(u||'');setToken(t||'');
         if(u&&t)openConnection(u,t);
       }).catch(()=>{
-        if(alive.current){setLoaded(true);setError('Could not read saved connection settings.');}
+        if(alive.current){setError('Could not read saved connection settings.');}
       });
     return()=>{
       alive.current=false;

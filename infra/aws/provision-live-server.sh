@@ -75,25 +75,16 @@ fi
 log 'Installing OpenCode, Codex and Claude CLI executables'
 sudo npm install --global opencode-ai @openai/codex @anthropic-ai/claude-code
 
-log 'Creating user-only terminal runtime secret'
-mkdir -p "$HOME/.config/noethara"
-chmod 700 "$HOME/.config/noethara"
-if [ ! -f "$HOME/.config/noethara/terminal.env" ]; then
-  umask 077
-  printf 'NOETHARA_TERMINAL_TOKEN=%s\nNOETHARA_WORKSPACE=%s\n' \
-    "$(openssl rand -hex 32)" "$REPO_ROOT" > "$HOME/.config/noethara/terminal.env"
-  chmod 600 "$HOME/.config/noethara/terminal.env"
-fi
-set -a
-# shellcheck source=/dev/null
-source "$HOME/.config/noethara/terminal.env"
-set +a
-
-log 'Starting PM2 processes as ubuntu'
-if pm2 describe noethara-terminal >/dev/null 2>&1; then
-  pm2 restart noethara-terminal --update-env
-else
+log 'Starting Noethara services (managed terminal requires one-time activation)'
+if [ -f "$HOME/.config/noethara/managed.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$HOME/.config/noethara/managed.env"
+  set +a
+  pm2 delete noethara-terminal >/dev/null 2>&1 || true
   pm2 start "$REPO_ROOT/runtime/server.mjs" --name noethara-terminal --cwd "$REPO_ROOT/runtime"
+else
+  log 'Supabase-authenticated gateway not yet activated; run infra/aws/activate-managed-terminal.sh'
 fi
 if pm2 describe noethara-health >/dev/null 2>&1; then
   pm2 restart noethara-health --update-env
@@ -141,6 +132,6 @@ pm2 list
 log 'Health check (local only)'
 curl -fsS http://127.0.0.1:3000/health
 printf '\n'
-log 'Finished. The terminal bridge listens on 127.0.0.1:8789 and is NOT public.'
+log 'Finished. Activate the owner-authorized bridge with infra/aws/activate-managed-terminal.sh.'
 log 'Add a private TLS/WSS proxy, domain, and CLI login before using the mobile remote terminals.'
-log 'Runtime token location on EC2: /home/ubuntu/.config/noethara/terminal.env (do not share it).'
+log 'No shared terminal token is used. Supabase authentication is required.'

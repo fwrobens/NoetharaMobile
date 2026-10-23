@@ -15,9 +15,9 @@ const LABELS: Record<Agent,string> = {
   claude: 'Claude Code',
 };
 const COLORS = {
-  bg: '#111215', surface: '#17191D', terminal: '#0C0D0F',
-  border: '#2C2E32', text: '#F2F2F4', secondary: '#A2A3A8',
-  muted: '#73757E', accent: '#B7A0F2', success: '#44D198',
+  bg: '#FCFAF7', surface: '#FFFEFC', terminal: '#FFFEFC',
+  border: '#E6E2DC', text: '#262528', secondary: '#6D6A70',
+  muted: '#8D898E', accent: '#7654C8', success: '#29BD67',
 };
 const MANAGED_ENDPOINT = 'wss://terminal.noethara.cloud';
 const Glyph = ({name,size=20,color=COLORS.text}:{
@@ -114,11 +114,11 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
         <Text style={styles.subtitle}>Noethara managed workspace</Text>
       </View>
       <View style={styles.connectionStatus}>
-        <View style={[styles.statusDot,{backgroundColor:connected?COLORS.success:status==='connecting'?'#DEAA6B':'#71717A'}]}/>
+        <View style={[styles.statusDot,{backgroundColor:connected?COLORS.success:status==='connecting'?'#CE9C4D':'#999599'}]}/>
         <Text style={styles.statusLabel}>{connected?'Live':status==='connecting'?'Connecting':'Offline'}</Text>
       </View>
       <Pressable onPress={()=>void connect()} style={styles.iconButton} accessibilityLabel="Reconnect terminal">
-        <Glyph name="refresh-cw" size={19} color="#D1D0D5"/>
+        <Glyph name="refresh-cw" size={19} color="#6E6A70"/>
       </Pressable>
     </View>
     <View style={styles.terminalFrame}>
@@ -153,11 +153,11 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
           <Text style={styles.emptyDescription}>Your Linux workspace is managed by Noethara. No SSH key or connection setup needed.</Text>
           <Pressable onPress={()=>void connect()} style={styles.emptyAction}>
             <Text style={styles.emptyActionText}>Reconnect</Text>
-            <Glyph name="refresh-cw" size={16} color="#17121E"/>
+            <Glyph name="refresh-cw" size={16} color="#FFFFFF"/>
           </Pressable>
         </View>}
         {!!error&&<View style={styles.errorRow}>
-          <Glyph name="alert-circle" color="#E2A092" size={16}/>
+          <Glyph name="alert-circle" color="#AD6F5A" size={16}/>
           <Text style={styles.errorText}>{error}</Text>
         </View>}
       </ScrollView>
@@ -185,11 +185,11 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
           autoCapitalize="none" autoCorrect={false} spellCheck={false}
           returnKeyType="send" editable={connected}
           placeholder={connected?'Type a command…':'Noethara workspace offline'}
-          placeholderTextColor="#6E6F77" style={styles.input}/>
+          placeholderTextColor="#9A969D" style={styles.input}/>
         <Pressable onPress={sendText} disabled={!connected||!input.length}
           style={[styles.sendButton,(!connected||!input.length)&&styles.disabledSend]}>
           <Glyph name="arrow-up" size={19}
-            color={connected&&input?'#141318':'#717078'}/>
+            color={connected&&input?'#FFFFFF':'#9A959E'}/>
         </Pressable>
       </View>
     </View>
@@ -204,68 +204,53 @@ const styles=StyleSheet.create({
   title:{color:COLORS.text,fontSize:19,fontWeight:'700',letterSpacing:-0.35},
   subtitle:{color:COLORS.muted,fontSize:11.5},
   connectionStatus:{height:29,flexDirection:'row',gap:6,alignItems:'center',paddingHorizontal:9,
-    borderRadius:9,backgroundColor:'#212228',borderWidth:1,borderColor:COLORS.border},
+    borderRadius:11,backgroundColor:'#F3F1ED',borderWidth:1,borderColor:'#E7E3DD'},
   statusDot:{width:7,height:7,borderRadius:5},
-  statusLabel:{color:'#BDBDC2',fontSize:11,fontWeight:'600'},
-  terminalFrame:{flex:1,marginHorizontal:11,marginBottom:10,borderWidth:1,borderColor:'#2E3035',
-    borderRadius:17,overflow:'hidden',backgroundColor:COLORS.terminal},
-  terminalChrome:{height:47,backgroundColor:'#191A1F',borderBottomWidth:1,borderColor:'#2B2C31',
+  statusLabel:{color:'#777379',fontSize:11,fontWeight:'600'},
+  terminalFrame:{flex:1,marginHorizontal:11,marginBottom:10,borderWidth:1,borderColor:'#E6E2DB',
+    borderRadius:19,overflow:'hidden',backgroundColor:COLORS.terminal,
+    shadowColor:'#7E736F',shadowOpacity:0.045,shadowOffset:{width:0,height:5},shadowRadius:16,elevation:1},
+  terminalChrome:{height:47,backgroundColor:'#F7F5F1',borderBottomWidth:1,borderColor:'#EAE5DF',
     flexDirection:'row',alignItems:'center',gap:11,paddingHorizontal:14},
   chromeDots:{flexDirection:'row',gap:6},
   chromeDot:{width:8,height:8,borderRadius:6},
-  chromeTitle:{flex:1,textAlign:'center',fontSize:11.5,color:'#96959C',fontWeight:'500'},
+  chromeTitle:{flex:1,textAlign:'center',fontSize:11.5,color:'#918D92',fontWeight:'500'},
   chromeAction:{width:28,height:28,alignItems:'flex-end',justifyContent:'center'},
   terminalScroll:{flex:1},
-  terminalBody:{minHeight:'100%',paddingHorizontal:17,paddingVertical:17},
-  outputText:{fontFamily:Platform.OS==='ios'?'Menlo':'monospace',fontSize:12.5,lineHeight:19.5,color:'#DADDE4'},
+  terminalBody:{flexGrow:1,paddingHorizontal:17,paddingVertical:17},
+  outputText:{fontFamily:Platform.OS==='ios'?'Menlo':'monospace',fontSize:12.5,lineHeight:19.5,color:'#323036'},
   emptyState:{flex:1,justifyContent:'center',alignItems:'center',gap:13,paddingVertical:25,paddingHorizontal:18},
-  terminalLogo:{height:56,width:56,borderRadius:17,alignItems:'center',justifyContent:'center',
-    borderWidth:1,borderColor:'#383242',backgroundColor:'#211D29',marginBottom:3},
-  emptyTitle:{fontSize:19,fontWeight:'700',color:'#ECEBF0',letterSpacing:-0.4,textAlign:'center'},
-  emptyDescription:{maxWidth:290,fontSize:12.5,lineHeight:19,color:'#898893',textAlign:'center'},
-  emptyAction:{flexDirection:'row',alignItems:'center',gap:10,backgroundColor:'#C1ACF3',
+  terminalLogo:{height:58,width:58,borderRadius:19,alignItems:'center',justifyContent:'center',
+    borderWidth:1,borderColor:'#E4DAF1',backgroundColor:'#F2ECFA',marginBottom:3,
+    shadowColor:'#AD94D2',shadowOpacity:0.14,shadowOffset:{width:0,height:5},shadowRadius:13,elevation:2},
+  emptyTitle:{fontSize:19,fontWeight:'700',color:'#29262B',letterSpacing:-0.4,textAlign:'center'},
+  emptyDescription:{maxWidth:290,fontSize:12.5,lineHeight:19,color:'#87838A',textAlign:'center'},
+  emptyAction:{flexDirection:'row',alignItems:'center',gap:10,backgroundColor:'#7753BF',
     borderRadius:12,paddingVertical:12,paddingHorizontal:18,marginTop:10},
-  emptyActionText:{fontSize:13,fontWeight:'700',color:'#17121E'},
+  emptyActionText:{fontSize:13,fontWeight:'700',color:'#FFFFFF'},
   connectingState:{flex:1,alignItems:'center',justifyContent:'center',flexDirection:'row',gap:12},
-  connectingText:{fontSize:12.5,color:'#AFA5BA'},
+  connectingText:{fontSize:12.5,color:'#92839C'},
   connectionNotice:{flexDirection:'row',alignItems:'center',gap:10},
-  connectionNoticeText:{color:'#898A91',fontSize:12.5},
-  errorRow:{marginTop:14,padding:12,backgroundColor:'#2C2022',borderRadius:11,flexDirection:'row',gap:9,alignItems:'flex-start'},
-  errorText:{color:'#E5B2A6',fontSize:12,lineHeight:18,flex:1},
-  terminalFooter:{height:33,borderTopWidth:1,borderColor:'#282A2F',
-    flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:14,backgroundColor:'#141519'},
-  footerIndicator:{height:6,width:6,borderRadius:4,backgroundColor:'#777780'},
-  footerLabel:{color:'#757680',fontSize:10,fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
+  connectionNoticeText:{color:'#87838A',fontSize:12.5},
+  errorRow:{marginTop:14,padding:12,backgroundColor:'#FFF5F0',borderWidth:1,
+    borderColor:'#F0DEDA',borderRadius:11,flexDirection:'row',gap:9,alignItems:'flex-start'},
+  errorText:{color:'#AE6257',fontSize:12,lineHeight:18,flex:1},
+  terminalFooter:{height:33,borderTopWidth:1,borderColor:'#EBE7E0',
+    flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:14,backgroundColor:'#F9F7F4'},
+  footerIndicator:{height:6,width:6,borderRadius:4,backgroundColor:'#B4AFB5'},
+  footerLabel:{color:'#918C92',fontSize:10,fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
   commandBar:{paddingHorizontal:12,paddingBottom:8,gap:10},
   keyStrip:{flexDirection:'row',gap:7,paddingBottom:1,paddingHorizontal:1},
-  key:{height:34,minWidth:45,borderRadius:9,backgroundColor:'#25262C',borderWidth:1,borderColor:'#303137',
+  key:{height:34,minWidth:45,borderRadius:9,backgroundColor:'#FFFFFF',
+    borderWidth:1,borderColor:'#E6E1DB',
     justifyContent:'center',alignItems:'center',paddingHorizontal:11},
-  disabledKey:{opacity:0.52},
-  keyText:{fontSize:11.5,fontWeight:'600',color:'#CFCCD5'},
-  inputRow:{height:51,backgroundColor:'#24252A',borderColor:'#33343A',borderWidth:1,
+  disabledKey:{opacity:0.55},
+  keyText:{fontSize:11.5,fontWeight:'600',color:'#555159'},
+  inputRow:{height:51,backgroundColor:'#FFFFFF',borderColor:'#E5E0D9',borderWidth:1,
     borderRadius:14,flexDirection:'row',alignItems:'center',paddingLeft:16,gap:11,paddingRight:6},
   promptSymbol:{fontSize:18,color:COLORS.accent,fontWeight:'700'},
   input:{flex:1,height:'100%',fontSize:13.5,color:COLORS.text,
     fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
-  sendButton:{height:38,width:40,backgroundColor:'#C1ACF3',borderRadius:10,alignItems:'center',justifyContent:'center'},
-  disabledSend:{backgroundColor:'#36363C'},
-  modal:{flex:1,backgroundColor:'#17181C'},
-  modalHeader:{height:64,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:18},
-  modalClose:{width:37,height:37,justifyContent:'center'},
-  modalTitle:{color:COLORS.text,fontWeight:'700',fontSize:16},
-  modalContent:{paddingHorizontal:24,paddingBottom:40},
-  connectionArtwork:{height:64,width:64,borderRadius:19,backgroundColor:'#282132',alignItems:'center',
-    justifyContent:'center',marginTop:23,marginBottom:22},
-  modalHeading:{fontSize:26,letterSpacing:-0.7,fontWeight:'700',color:COLORS.text,marginBottom:12},
-  modalSubtitle:{fontSize:14,color:'#9C9AA5',lineHeight:22,marginBottom:31},
-  fieldLabel:{fontSize:10,fontWeight:'700',letterSpacing:1,color:'#888391',marginBottom:10},
-  field:{height:55,borderWidth:1,borderColor:'#3B3B44',backgroundColor:'#24252B',
-    borderRadius:13,paddingHorizontal:15,marginBottom:21,color:COLORS.text,fontSize:14},
-  helperRow:{flexDirection:'row',alignItems:'flex-start',gap:10,marginBottom:15},
-  helperText:{flex:1,fontSize:12,color:'#928E9C',lineHeight:19},
-  modalError:{color:'#E9A79C',fontSize:12,lineHeight:19,marginBottom:17},
-  connectButton:{height:55,borderRadius:13,flexDirection:'row',justifyContent:'center',
-    alignItems:'center',gap:13,backgroundColor:'#C4AFF7',marginTop:8},
-  connectButtonText:{fontSize:14,fontWeight:'700',color:'#15121D'},
-  disclaimer:{fontSize:11,color:'#75717D',lineHeight:17,marginTop:22},
+  sendButton:{height:38,width:40,backgroundColor:'#7654C8',borderRadius:10,alignItems:'center',justifyContent:'center'},
+  disabledSend:{backgroundColor:'#F2EDF8'},
 });

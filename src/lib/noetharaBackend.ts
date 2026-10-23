@@ -255,6 +255,8 @@ async function callAPI<T>(path: string, options: {
     throw Error('GitHub repository access is not authorized. Connect GitHub in Settings.');
   }
   let res: Response;
+  const abort = new AbortController();
+  const timer=setTimeout(()=>abort.abort(),path==='/chat'?68000:18000);
   try {
     res = await fetch(API_URL + path, {
       method: options.method ?? 'GET',
@@ -265,12 +267,12 @@ async function callAPI<T>(path: string, options: {
         ...(token ? { 'x-github-token': token } : {}),
       },
       ...(options.payload ? { body: JSON.stringify(options.payload) } : {}),
-      signal: AbortSignal.timeout(path === '/chat' ? 70000 : 18000),
+      signal: abort.signal,
     });
   } catch (e) {
     const detail = e instanceof Error ? e.message : 'Network failure';
     throw Error('Could not reach the Noethara API (' + detail + '). Check your internet connection and Supabase function status.');
-  }
+  } finally {clearTimeout(timer);}
   const raw = await res.text();
   let data: any;
   try { data = raw ? JSON.parse(raw) : {}; } catch { throw Error('Backend returned an invalid response.'); }

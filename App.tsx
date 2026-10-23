@@ -283,7 +283,7 @@ function Workspace({
   openMenu, prompt, setPrompt, inputRef, selection, setSelection,
   keyboardVisible, setKeyboardVisible, send, onTool, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
-  openMenu: () => void; prompt: string; setPrompt: (p: string) => void; inputRef: React.RefObject<TextInput | null>;
+  openMenu: () => void; prompt: string; setPrompt: (p: string) => void; inputRef: React.RefObject<React.ElementRef<typeof TextInput> | null>;
   selection: { start: number; end: number }; setSelection: (v: { start: number; end: number }) => void;
   keyboardVisible: boolean; setKeyboardVisible: (v: boolean) => void; send: () => void;
   onTool: (key: ToolKey) => void;

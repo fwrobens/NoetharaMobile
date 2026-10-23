@@ -403,10 +403,10 @@ function FilesPage({ onBack }: { onBack: () => void }) {
 }
 
 function NavigationDrawer({
-  progress, active, onClose, onNavigate, page, chats, onOpenChat, onNewChat, onTerminal
+  progress, active, onClose, onNavigate, page, chats, activeChatId, onOpenChat, onNewChat, onTerminal
 }: {
   progress: Animated.Value; active:boolean; onClose:()=>void; onNavigate:(p:Page)=>void; page:Page;
-  chats: ConversationSummary[]; onOpenChat:(id:string)=>void; onNewChat:()=>void; onTerminal:()=>void;
+  chats: ConversationSummary[]; activeChatId:string|null; onOpenChat:(id:string)=>void; onNewChat:()=>void; onTerminal:()=>void;
 }) {
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(width*0.79,338);
@@ -446,7 +446,9 @@ function NavigationDrawer({
               contentContainerStyle={{paddingHorizontal:14,paddingBottom:15}}>
               {chats.length===0&&<Text style={{color:'#969199',fontSize:12,paddingHorizontal:12,paddingVertical:9}}>Your conversations appear here.</Text>}
               {chats.map(chat=><Tap onPress={()=>onOpenChat(chat.id)} key={chat.id}
-                style={{paddingHorizontal:12,paddingVertical:13,borderRadius:12,flexDirection:'row',alignItems:'center',gap:12}}>
+                accessibilityLabel={'Open conversation: '+(chat.title||'New chat')}
+                style={{paddingHorizontal:12,paddingVertical:15,borderRadius:12,flexDirection:'row',alignItems:'center',gap:12,
+                  backgroundColor:chat.id===activeChatId?'#F0EBF8':'transparent'}}>
                 <Icon name="message-square" size={16} color="#756B7C"/>
                 <Text numberOfLines={1} style={{fontSize:14,color:'#4A4750',flex:1}}>{chat.title||'New chat'}</Text>
               </Tap>)}
@@ -529,7 +531,7 @@ function RootApp() {
       if(keyboardVisible)return false;
       const sideways=Math.abs(g.dx)>6&&Math.abs(g.dx)>Math.abs(g.dy)*1.2;
       if(!sideways)return false;
-      if(drawerOpen)return g.dx<0&&g.x0<drawerWidth+12;
+      if(drawerOpen)return g.dx< -14&&g.x0<drawerWidth+12&&Math.abs(g.dx)>Math.abs(g.dy)*1.5;
       return g.dx>0&&g.x0<45;
     },
     onPanResponderGrant:()=>{
@@ -616,7 +618,7 @@ function RootApp() {
               quality={quality} setQuality={setQuality}/>}
             {page==='terminals'&&<TerminalDashboard onBack={()=>go('workspace')} onAgent={openTerminal}/>}
             {page==='terminal'&&<RemoteTerminal agent={terminalAgent} onBack={()=>go('terminals')}/>}
-            {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
+            {page==='chat'&&<ConnectedChat key={String(chatVersion)+':'+(activeChatId||'new')} onMenu={openDrawer}
               onSettings={()=>go('settings')} onFiles={()=>go('files')}
               latest={lastMessage} conversationId={activeChatId}
               onChatSaved={id=>{setActiveChatId(id);refreshChats();}}
@@ -635,7 +637,7 @@ function RootApp() {
           </SafeAreaView>
         </KeyboardAvoidingView>
         <NavigationDrawer progress={drawerProgress} active={drawerActive} page={page}
-          chats={chats} onClose={closeDrawer} onNavigate={go}
+          chats={chats} activeChatId={activeChatId} onClose={closeDrawer} onNavigate={go}
           onOpenChat={openHistory} onNewChat={newChat} onTerminal={()=>openTerminal('opencode')}/>
         <ModelPicker visible={showHomeModels} onClose={()=>setShowHomeModels(false)}
           selected={provider} onSelect={value=>{setProvider(value);void savePreferredModel(value);}}/>

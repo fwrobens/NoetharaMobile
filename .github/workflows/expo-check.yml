@@ -1,4 +1,4 @@
-name: Expo SDK 57 validation
+name: Expo SDK 58 validation
 on:
   push:
     branches: [main]
@@ -17,6 +17,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Validate Expo dependencies
         run: npx expo install --check
+      - name: Expo Doctor health check
+        run: npx expo-doctor@latest
       - name: TypeScript check
         run: npm run typecheck
       - name: Verify iOS JavaScript bundle compiles

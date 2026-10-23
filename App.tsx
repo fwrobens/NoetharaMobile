@@ -618,7 +618,7 @@ function RootApp() {
               quality={quality} setQuality={setQuality}/>}
             {page==='terminals'&&<TerminalDashboard onBack={()=>go('workspace')} onAgent={openTerminal}/>}
             {page==='terminal'&&<RemoteTerminal agent={terminalAgent} onBack={()=>go('terminals')}/>}
-            {page==='chat'&&<ConnectedChat key={String(chatVersion)+':'+(activeChatId||'new')} onMenu={openDrawer}
+            {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
               onSettings={()=>go('settings')} onFiles={()=>go('files')}
               latest={lastMessage} conversationId={activeChatId}
               onChatSaved={id=>{setActiveChatId(id);refreshChats();}}

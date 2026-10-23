@@ -19,3 +19,5 @@ jobs:
         run: npx expo install --check
       - name: TypeScript check
         run: npm run typecheck
+      - name: Verify iOS JavaScript bundle compiles
+        run: npx expo export --platform ios --output-dir /tmp/noethara-ios-smoke-test --clear

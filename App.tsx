@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { TextInputInstance } from 'react-native';
 import {
   Alert,
   Animated,
@@ -222,7 +223,7 @@ function Composer({
   prompt, setPrompt, inputRef, selection, setSelection, onFocus, onBlur, onSend,
   isFocused, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
-  prompt: string; setPrompt: (value: string) => void; inputRef: React.RefObject<TextInput | null>;
+  prompt: string; setPrompt: (value: string) => void; inputRef: React.RefObject<TextInputInstance | null>;
   selection: { start: number; end: number }; setSelection: (value: { start: number; end: number }) => void;
   onFocus: () => void; onBlur: () => void; onSend: () => void;
   isFocused: boolean; mode: string; setMode: (value: string) => void; provider: string;
@@ -283,7 +284,7 @@ function Workspace({
   openMenu, prompt, setPrompt, inputRef, selection, setSelection,
   keyboardVisible, setKeyboardVisible, send, onTool, mode, setMode, provider, setProvider, openModelPicker, quality, setQuality,
 }: {
-  openMenu: () => void; prompt: string; setPrompt: (p: string) => void; inputRef: React.RefObject<TextInput | null>;
+  openMenu: () => void; prompt: string; setPrompt: (p: string) => void; inputRef: React.RefObject<TextInputInstance | null>;
   selection: { start: number; end: number }; setSelection: (v: { start: number; end: number }) => void;
   keyboardVisible: boolean; setKeyboardVisible: (v: boolean) => void; send: () => void;
   onTool: (key: ToolKey) => void;
@@ -483,7 +484,7 @@ function RootApp() {
   const [activeChatId,setActiveChatId]=useState<string|null>(null);
   const [chatVersion,setChatVersion]=useState(0);
   const [terminalAgent,setTerminalAgent]=useState<'opencode'|'codex'|'claude'>('opencode');
-  const inputRef=useRef<TextInput>(null);
+  const inputRef=useRef<TextInputInstance>(null);
   const {width:screenWidth}=useWindowDimensions();
   const drawerWidth=Math.min(screenWidth*0.79,338);
   const drawerProgress=useRef(new Animated.Value(0)).current;

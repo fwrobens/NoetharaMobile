@@ -134,6 +134,31 @@ export async function handleWorkspaceRequest(req,res,url,userId){
         reply(res,201,{workspace:{id,name:id,path:join(ROOT,id)}});return true;
       }
     }
+    if(fragments.length===2 && fragments[1]==='github-create' && method==='POST'){
+      const payload=await body(req);
+      const id=name(payload.name);
+      if(payload.approved!==true)throw Error('Creating GitHub repositories requires user approval');
+      const token=req.headers['x-github-token'];
+      if(typeof token!=='string'||token.length<15)throw Error('Connect GitHub before creating a repository');
+      const dirs=(await readdir(ROOT,{withFileTypes:true})).filter(e=>e.isDirectory());
+      if(dirs.length>=MAX_REPOS){fail(res,409,'Workspace limit reached');return true}
+      const created=await fetch('https://api.github.com/user/repos',{
+        method:'POST',headers:{authorization:'Bearer '+token,accept:'application/vnd.github+json',
+          'content-type':'application/json','user-agent':'NoetharaMobile'},
+        body:JSON.stringify({name:id,private:true,auto_init:true,description:'Built with NoetharaMobile'}),
+        signal:AbortSignal.timeout(12000)
+      });
+      if(!created.ok){
+        fail(res,created.status===422?409:400,'GitHub could not create the repository (HTTP '+created.status+'). Check account permissions and repository name.');
+        return true;
+      }
+      const metadata=await created.json();
+      const repo=String(metadata.full_name||'');
+      if(!REPO.test(repo))throw Error('GitHub returned an invalid project');
+      // User authorized this new private repository and its local clone.
+      const result=await clone(repo,id,token);
+      reply(res,201,{workspace:result});return true;
+    }
     if(fragments.length===2 && fragments[1]==='clone' && method==='POST'){
       const payload=await body(req);
       const token=req.headers['x-github-token'];

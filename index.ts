@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Pressable, ScrollView, StyleSheet, Text, View,
+  Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { registerRootComponent } from 'expo';
 import { useFonts } from 'expo-font';
@@ -56,10 +56,11 @@ class BootBoundary extends React.Component<{ children: React.ReactNode }, BootSt
 }
 
 function Root() {
-  // Exporting the web bundle downloads font assets but doesn't guarantee the
-  // browser registered their @font-face definitions before drawing glyphs.
-  // Preload both icon families used by Noethara to avoid square tofu icons.
-  const [fontsLoaded, fontError] = useFonts({
+  // Browser icon fonts are self-hosted by scripts/finalize-web.mjs and
+  // registered through the exported index.html. Expo Font's dynamic web
+  // registration can reference assets absent from a static Pages deployment.
+  // Keep the native font preload for Expo Go / custom development builds.
+  const [fontsLoaded, fontError] = useFonts(Platform.OS==='web' ? {} : {
     ...Feather.font,
     ...MaterialCommunityIcons.font,
   });

@@ -4,7 +4,7 @@
 import { readFile, lstat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 
-const VISION_MODEL=()=>process.env.NOETHARA_VISION_MODEL||'qwen/qwen3.5-122b-a10b';
+// NVIDIA documents this endpoint as supporting images, text, coding and tool use.\nconst VISION_MODEL=()=>process.env.NOETHARA_VISION_MODEL||'nvidia/nemotron-3.5-super-vl-120b-a12b';
 const ENDPOINT=()=>process.env.NOETHARA_VISION_ENDPOINT||'https://integrate.api.nvidia.com/v1/chat/completions';
 const MIME={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'};
 let pw=null,browserPromise=null;
@@ -114,4 +114,5 @@ SCORE: n/10
 BROKEN: bullet list of anything visibly broken (overlapping or clipped elements, text overflowing, horizontal scrolling, invisible text, misaligned grids, empty or blank areas, unstyled defaults). Write "none" if nothing.
 IMPROVE: the 5 highest-impact concrete changes, most important first. Each must name the element and give exact values (e.g. "Hero title: 40px -> 32px on phone, weight 700, letter-spacing -0.02em"; "Cards: add 16px padding, 20px radius, 1px #ECECF2 border").
 KEEP: one line on what already works.
+Check real screenshot evidence, not just whether the page compiles. Flag illegible text, odd scale, no responsive hierarchy, excessive blank space and unsafe claims/fictional certifications presented as fact.
 Do not write code. Do not invent elements that are not in the screenshots.`;

@@ -164,7 +164,8 @@ export async function handleWorkspaceRequest(req,res,url,userId){
         if(!stat.isFile()||stat.size>MAX_FILE){fail(res,413,'Only text files up to 128 KB supported');return true}
         const bytes=await readFile(target);
         if(bytes.includes(0)){fail(res,415,'Binary files are not available');return true}
-        reply(res,200,{path,content:bytes.toString('utf8')});return true;
+        const sha256=await import('node:crypto').then(c=>c.createHash('sha256').update(bytes).digest('hex'));
+        reply(res,200,{path,content:bytes.toString('utf8'),sha256});return true;
       }
       if(fragments.length===3 && fragments[2]==='file' && method==='PUT'){
         const payload=await body(req);

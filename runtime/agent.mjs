@@ -579,15 +579,16 @@ async function action(dir,name,arg,job){
  throw Error('Unknown tool '+name+'. Available: '+[...TOOL_NAMES].join(', '));
 }
 async function complete(provider,messages,tools=functions){
- let maxTokens=Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||16384;
+ // Keep frequent tool-call turns responsive; explicit AWS override supports large files.
+ let maxTokens=Math.min(16384,Math.max(2048,Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||8192));
  let lastError;
- for(let attempt=0;attempt<4;attempt++){
+ for(let attempt=0;attempt<3;attempt++){
   let resp;
   try{
    resp=await fetch(provider.endpoint,{
     method:'POST',headers:{authorization:'Bearer '+provider.key,'content-type':'application/json'},
     body:JSON.stringify(completionRequest(provider,messages,tools,maxTokens)),
-    signal:AbortSignal.timeout(170000)
+    signal:AbortSignal.timeout(Math.min(170000,Math.max(25000,Number(process.env.NOETHARA_MODEL_TIMEOUT_MS)||90000)))
    });
   }catch(e){lastError=Error('AI provider unreachable: '+String(e.message||e));await pause(1500*(attempt+1));continue}
   if(resp.ok)return await resp.json();
@@ -670,7 +671,20 @@ async function generate(job,dir,body){
   const planNote=job.plan.length?'\n\n# Current plan\n'+job.plan.map(s=>'- ['+s.status+'] '+s.title).join('\n'):'';
   const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+terminalNote+mcpNote+reviewNote+imageNote+planNote+memory},...origin,...recent];
   job.phase=round===0?'planning':'thinking';
-  const payload=await complete(provider,messages,tools);
+  const aiRef='model_'+(round+1);
+  event(job,'Generating and deciding next code changes','model',{ref:aiRef,status:'running',tool:'model',round:round+1});
+  const modelStarted=Date.now();
+  let payload;
+  try{
+   payload=await complete(provider,messages,tools);
+   const elapsed=Date.now()-modelStarted;
+   job.metrics=job.metrics||{modelMs:0,toolMs:0,requests:0,commands:0};
+   job.metrics.modelMs+=elapsed;job.metrics.requests++;
+   event(job,'AI response received','result',{ref:aiRef,status:'done',tool:'model',ms:elapsed});
+  }catch(error){
+   event(job,'Model request failed','error',{ref:aiRef,status:'failed',tool:'model',ms:Date.now()-modelStarted});
+   throw error;
+  }
   const choice=payload.choices?.[0];
   const msg=choice?.message;
   if(!msg)throw Error('Model did not return a response');
@@ -761,6 +775,9 @@ async function generate(job,dir,body){
     output=await action(dir,name,args,job);
     ok=true;errorsInARow=0;
     if(name!=='update_plan')event(job,described.message,'result',{ref,status:'done',tool:name,ms:Date.now()-t0,path:args.path?String(args.path).slice(0,120):undefined});
+    job.metrics=job.metrics||{modelMs:0,toolMs:0,requests:0,commands:0};
+    job.metrics.toolMs+=Date.now()-t0;
+    if(['run_command','run_shell','verify_project'].includes(name))job.metrics.commands++;
    }catch(e){
     const reason=String(e.message||e);
     output='Tool error: '+reason;
@@ -772,9 +789,9 @@ async function generate(job,dir,body){
    batch.push({role:'tool',tool_call_id:tool.id,content:String(output).slice(0,limit)});
   }
   workHistory.push(batch);
-  if(errorsInARow>=8){
+  if(errorsInARow>=5){
    job.status='paused';job.phase='paused';
-   job.answer='Repeated tool failures interrupted this session. Your files are preserved. Tap Continue to diagnose and fix the errors.';
+   job.answer='Five consecutive tool failures stopped this run to prevent an expensive loop. The files are saved. Review the error messages, then tap Continue to diagnose.';
    event(job,'Repeated errors. Continue to troubleshoot instead of looping.','paused');
    return;
   }
@@ -832,7 +849,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
   send(res,200,{jobId:job.id,status:job.status,phase:job.phase,answer:job.answer,error:job.error,events:job.events,
    plan:job.plan,files:[...job.files],checks:job.checks,round:job.round,startedAt:job.created,model:job.input?.model||null,
-   checkpoints:job.checkpoints,interrupted:Boolean(job.interrupted),pendingApproval:job.pendingApproval||null,design:job.design||null});
+   checkpoints:job.checkpoints,interrupted:Boolean(job.interrupted),pendingApproval:job.pendingApproval||null,design:job.design||null,metrics:job.metrics||null});
   return true;
  }
  if(parts.length===5&&parts[4]==='continue'&&req.method==='POST'){

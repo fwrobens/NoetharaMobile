@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
@@ -9,8 +9,10 @@ import {
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
 import { readProjectContext, type SelectedProject } from '../lib/githubRepoContext';
+import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
 
 const INK='#262429', MUTED='#88858C', PURPLE='#7355C7';
+const delay=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
 const Icon = (name:React.ComponentProps<typeof Feather>['name'],size=20,color=INK) =>
   <Feather name={name} size={size} color={color}/>;
 
@@ -46,6 +48,11 @@ export function ConnectedChat({
   const [messages,setMessages]=useState<ChatEntry[]>(latest?[{role:'user',content:latest}]:[]);
   const [prompt,setPrompt]=useState('');
   const [thinking,setThinking]=useState(false);
+  const [managedId,setManagedId]=useState<string|null>(null);
+  const [managedProjects,setManagedProjects]=useState<ManagedWorkspace[]>([]);
+  const [workspacePickerOpen,setWorkspacePickerOpen]=useState(false);
+  const [workspaceStatus,setWorkspaceStatus]=useState('');
+  const [agentBusy,setAgentBusy]=useState(false);
   const [pendingEdits,setPendingEdits]=useState<GithubProposedEdit[]>([]);
   const [reviewEdit,setReviewEdit]=useState<GithubProposedEdit|null>(null);
   const [savingEdit,setSavingEdit]=useState(false);
@@ -87,6 +94,33 @@ export function ConnectedChat({
   };
   async function buildRequest(next:ChatEntry[], instruction:string, modelId:string) {
     let contextWarning='';
+    // Coding tasks belong to a real Linux workspace, never text-only chat.
+    let active=managedId;
+    if(!active&&!attachedProject&&/\b(build|create|generate|make|implement|scaffold)\b[\s\S]{0,95}\b(app|website|site|project|dashboard|frontend|backend)\b/i.test(instruction)){
+      const name='Project'+Date.now().toString(36);
+      const result=await managedWorkspace.create(name);
+      active=result.workspace.id;
+      if(mounted.current)setManagedId(active);
+    }
+    if(active){
+      const resolvedModel=modelId==='Beam-1.0-501B-A23B'?'nvidia/nemotron-3-super-120b-a12b':modelId;
+      if(mounted.current){setAgentBusy(true);setWorkspaceStatus('Preparing '+active+' on AWS…');}
+      try{
+        const started=await managedWorkspace.startAgent(active,next.slice(-10),resolvedModel);
+        for(let attempt=0;attempt<180;attempt++){
+          await delay(1200);
+          const update=await managedWorkspace.agentStatus(active,started.jobId);
+          const last=update.events.at(-1)?.message||'Coding in '+active+'…';
+          if(mounted.current)setWorkspaceStatus(last);
+          if(update.status==='completed')return {
+            result:{answer:update.answer||'Project files were generated in '+active+'.',provider:'AWS workspace agent',model:resolvedModel,fallbackUsed:false},
+            contextWarning:'',edits:[] as GithubProposedEdit[]
+          };
+          if(update.status==='failed')throw Error(update.error||'AWS coding job failed');
+        }
+        throw Error('The coding job is still running on AWS. Reopen the project to inspect the created files.');
+      }finally{if(mounted.current){setAgentBusy(false);setWorkspaceStatus('');}}
+    }
     if(attachedProject){
       try{
         const result=await noetharaAPI.agent(next,attachedProject,modelId);
@@ -168,6 +202,11 @@ export function ConnectedChat({
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
     }finally{if(mounted.current)setThinking(false);}
   }
+  async function showWorkspaces(){
+    setWorkspacePickerOpen(true);
+    try{setManagedProjects((await managedWorkspace.list()).workspaces);}
+    catch(e){output(e instanceof Error?e.message:'Workspace service unavailable',true);}
+  }
   function approve(edit:GithubProposedEdit){
     Alert.alert('Commit to GitHub','This will update '+edit.repo+'/'+edit.path+' on '+edit.branch+'. Review the complete replacement before proceeding.',[
       {text:'Cancel',style:'cancel'},
@@ -207,7 +246,7 @@ export function ConnectedChat({
           </View>)}
       {thinking&&<View style={styles.thinking}>
         <ActivityIndicator color={PURPLE} size="small"/>
-        <Text style={styles.thinkingText}>Thinking…</Text>
+        <Text style={styles.thinkingText}>{workspaceStatus||'Thinking…'}</Text>
       </View>}
       {pendingEdits.map((edit,i)=><Pressable key={edit.path+'-'+i}
         onPress={()=>setReviewEdit(edit)} style={styles.proposalCard}>
@@ -228,9 +267,9 @@ export function ConnectedChat({
         {Icon('file-text',16,PURPLE)}<Text style={styles.fileLabel} numberOfLines={1}>{attachedFile.repo} / {attachedFile.path}</Text>
         <Pressable onPress={onRemoveFile} accessibilityLabel="Remove file">{Icon('x',17,MUTED)}</Pressable>
       </View>}
-      <Pressable onPress={onFiles} style={styles.projectPicker}>
+      <Pressable onPress={()=>void showWorkspaces()} style={styles.projectPicker}>
         {Icon('folder',17,MUTED)}
-        <Text style={styles.projectName} numberOfLines={1}>{attachedProject?attachedProject.repo:attachedFile?attachedFile.repo:'Choose GitHub project'}</Text>
+        <Text style={styles.projectName} numberOfLines={1}>{managedId?'Workspace / '+managedId:attachedProject?attachedProject.repo:attachedFile?attachedFile.repo:'Choose workspace'}</Text>
         {Icon('chevron-down',16,MUTED)}
       </Pressable>
       <LinearGradient colors={['#FFFFFF','#F8F6F2']} style={styles.composer}>
@@ -238,7 +277,7 @@ export function ConnectedChat({
           placeholder="Message your coding assistant…" placeholderTextColor="#A4A0A7"
           style={styles.input} textAlignVertical="top"/>
         <View style={styles.actions}>
-          <Pressable onPress={onFiles} accessibilityLabel="Attach GitHub file">{Icon('plus-circle',24,MUTED)}</Pressable>
+          <Pressable onPress={onFiles} accessibilityLabel="Attach a GitHub file">{Icon('plus-circle',24,MUTED)}</Pressable>
           <Pressable onPress={()=>setModelPickerOpen(true)} style={styles.modelPicker}>
             <Text numberOfLines={1} style={styles.modelLabel}>{model.includes('/')?model.split('/')[1]:model}</Text>
             {Icon('chevron-down',15,PURPLE)}
@@ -250,6 +289,34 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
+    <Modal visible={workspacePickerOpen} transparent animationType="slide" onRequestClose={()=>setWorkspacePickerOpen(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.reviewSheet}>
+          <View style={styles.reviewHeader}>
+            <Text style={styles.reviewTitle}>Select workspace</Text>
+            <Pressable onPress={()=>setWorkspacePickerOpen(false)}>{Icon('x',22)}</Pressable>
+          </View>
+          <Text style={styles.reviewDescription}>Choose a persistent Linux project for real file generation and npm commands.</Text>
+          <ScrollView style={{maxHeight:340,marginTop:15}}>
+            {managedProjects.map(project=><Pressable key={project.id}
+              style={styles.workspaceChoice} onPress={()=>{setManagedId(project.id);setWorkspacePickerOpen(false);}}>
+              {Icon('folder',19,PURPLE)}
+              <View style={{flex:1}}><Text style={styles.workspaceName}>{project.name}</Text>
+                <Text style={styles.workspaceHint} numberOfLines={1}>{project.path}</Text></View>
+              {managedId===project.id&&Icon('check',19,PURPLE)}
+            </Pressable>)}
+            <Pressable style={styles.workspaceChoice} onPress={()=>{setManagedId(null);setWorkspacePickerOpen(false);onFiles();}}>
+              {Icon('github',19,PURPLE)}<Text style={styles.workspaceName}>Attach GitHub repository</Text>
+              {Icon('chevron-right',17,MUTED)}
+            </Pressable>
+          </ScrollView>
+          <Pressable onPress={()=>{setManagedId(null);setWorkspacePickerOpen(false);}}
+            style={{paddingVertical:17,alignItems:'center'}}>
+            <Text style={{color:MUTED,fontSize:13}}>Use general chat</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
     <Modal visible={Boolean(reviewEdit)} animationType="slide" transparent onRequestClose={()=>setReviewEdit(null)}>
       <View style={styles.modalOverlay}>
         <View style={styles.reviewSheet}>
@@ -274,6 +341,10 @@ export function ConnectedChat({
 }
 const styles=StyleSheet.create({
   root:{flex:1,backgroundColor:'#FCFAF7'},
+  workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
+    borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},
+  workspaceName:{fontSize:14,fontWeight:'600',color:INK},
+  workspaceHint:{fontSize:11,color:MUTED,marginTop:5},
   proposalCard:{marginTop:11,padding:14,backgroundColor:'#F5F1FB',borderRadius:14,
     flexDirection:'row',gap:11,alignItems:'center',borderWidth:1,borderColor:'#E9E1F0'},
   proposalTitle:{fontSize:13,fontWeight:'700',color:INK},

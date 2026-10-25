@@ -180,6 +180,64 @@ export async function handleWorkspaceRequest(req,res,url,userId){
         await writeFile(target,payload.content,{flag:'w',mode:0o600});
         reply(res,200,{saved:true,path:payload.path});return true;
       }
+      if(fragments.length===3 && fragments[2]==='git-review' && method==='GET'){
+        const status=await runGit(['status','--porcelain','--untracked-files=normal'],{cwd:dir,timeout:8000});
+        const diff=await runGit(['diff','--stat'],{cwd:dir,timeout:8000});
+        const staged=await runGit(['diff','--cached','--name-only'],{cwd:dir,timeout:8000});
+        reply(res,200,{status:status.slice(0,10000),diff:diff.slice(0,10000),staged:staged.slice(0,10000)});
+        return true;
+      }
+      if(fragments.length===3 && fragments[2]==='git-push' && method==='POST'){
+        const payload=await body(req);
+        if(payload.approved!==true)throw Error('Review and approve changes in the app before publishing.');
+        const message=typeof payload.message==='string'?payload.message.trim():'';
+        if(message.length<5||message.length>120||/[\r\n]/.test(message))
+          throw Error('Use a meaningful commit message (5–120 characters).');
+        const token=req.headers['x-github-token'];
+        if(typeof token!=='string'||token.length<15)throw Error('Connect GitHub before publishing');
+        const origin=(await runGit(['remote','get-url','origin'],{cwd:dir,timeout:8000})).trim();
+        const found=/^https:\/\/github\.com\/([a-z\d_.-]{1,100}\/[a-z\d_.-]{1,100})\.git$/i.exec(origin);
+        if(!found)throw Error('This workspace is not attached to a supported GitHub clone.');
+        const authorized=await fetch('https://api.github.com/repos/'+found[1],{
+          headers:{authorization:'Bearer '+token,accept:'application/vnd.github+json','user-agent':'NoetharaMobile'},
+          signal:AbortSignal.timeout(9000)
+        });
+        if(!authorized.ok)throw Error('GitHub repo permission was rejected.');
+        const metadata=await authorized.json();
+        if(!metadata.permissions?.push)throw Error('GitHub account cannot push to this repository.');
+        const branch=(await runGit(['branch','--show-current'],{cwd:dir,timeout:7000})).trim();
+        if(!/^[\w.-]{1,90}$/.test(branch))throw Error('Unsupported Git branch.');
+        const staged=(await runGit(['diff','--cached','--name-only'],{cwd:dir,timeout:7000})).trim();
+        if(staged)throw Error('Existing staged changes must be reviewed in the CLI before publishing.');
+        const changes=await runGit(['status','--porcelain','-z','--untracked-files=normal'],{cwd:dir,timeout:7000});
+        const records=changes.split('\0').filter(Boolean);
+        if(records.length>120)throw Error('Too many changed files. Review via terminal first.');
+        const paths=[];
+        for(let index=0;index<records.length;index++){
+          const record=records[index];
+          const flag=record.slice(0,2);
+          if(/[RC]/.test(flag))throw Error('Renames or copies require a CLI review before publishing.');
+          const name=record.slice(3);
+          await checkedFile(dir,name,flag==='??'||flag.includes('D'));
+          paths.push(name);
+        }
+        if(paths.length===0)throw Error('Nothing to publish.');
+        await runGit(['add','--',...paths],{cwd:dir,timeout:15000});
+        const author=await fetch('https://api.github.com/user',{
+          headers:{authorization:'Bearer '+token,'user-agent':'NoetharaMobile'},
+          signal:AbortSignal.timeout(8000)
+        });
+        if(!author.ok)throw Error('Could not verify GitHub identity');
+        const profile=await author.json();
+        const login=String(profile.login||'noethara').replace(/[^\w-]/g,'').slice(0,40);
+        const email=String(profile.id||'0')+'+'+login+'@users.noreply.github.com';
+        await runGit(['-c','user.name='+login,'-c','user.email='+email,'commit','-m',message],{cwd:dir,timeout:15000});
+        await runGit(['push','origin','HEAD:refs/heads/'+branch],{
+          cwd:dir,timeout:50000,env:PRIVATE_HEADERS(token)
+        });
+        reply(res,200,{published:true,repo:found[1],branch,files:paths});
+        return true;
+      }
       if(fragments.length===3 && fragments[2]==='git-status' && method==='GET'){
         const changes=await runGit(['status','--porcelain','--untracked-files=normal'],{cwd:dir,timeout:7000});
         reply(res,200,{workspace:fragments[1],changes:changes.slice(0,10000)});return true;

@@ -17,7 +17,7 @@ const C={ink:'#211D26',body:'#5E5866',muted:'#948E9B',faint:'#C9C3CE',line:'#EEE
  red:'#C4574C',redSoft:'#FBEAE8',amber:'#B7832F'};
 const PHASES:Record<string,string>={starting:'Starting up',planning:'Planning the work',thinking:'Thinking',
  reading:'Reading the project',writing:'Writing code',running:'Running checks',previewing:'Starting preview',
- done:'Work complete',paused:'Paused',failed:'Needs attention',awaiting_approval:'Waiting for your approval'};
+ done:'Work complete',paused:'Paused',failed:'Needs attention',awaiting_approval:'Waiting for your approval',reviewing:'Reviewing the design'};
 const TOOL_ICONS:Record<string,IconName>={list_files:'folder',read_file:'file-text',write_file:'edit-3',
  edit_file:'edit-2',delete_file:'trash-2',scaffold_app:'box',run_command:'terminal',start_preview:'monitor'};
 const KIND_ICONS:Record<string,IconName>={read:'file-text',write:'edit-3',command:'terminal',preview:'monitor',

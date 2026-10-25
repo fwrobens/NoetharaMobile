@@ -9,6 +9,18 @@ git pull --ff-only origin main
 echo '==> Installing runtime dependencies'
 npm install --prefix runtime --no-audit --no-fund
 
+# Headless Chromium for screenshot design reviews (optional; agent works without it).
+if [ -d runtime/node_modules/playwright ]; then
+  echo "Installing Chromium for design reviews"
+  (cd runtime && npx playwright install chromium >/dev/null 2>&1) || echo "WARN: Chromium download failed"
+  if sudo -n true 2>/dev/null; then
+    (cd runtime && sudo -n env "PATH=$PATH" npx playwright install-deps chromium >/dev/null 2>&1) || echo "WARN: Chromium system libraries failed to install"
+  else
+    echo "NOTE: run once with sudo:  cd ~/NoetharaMobile/runtime && sudo env \"PATH=\$PATH\" npx playwright install-deps chromium"
+  fi
+  node --input-type=module -e "import('playwright').then(p=>p.chromium.launch({args:['--no-sandbox']})).then(b=>{console.log('Design review browser: OK');return b.close()}).catch(e=>console.log('Design review browser: unavailable -',String(e.message).split('\\n')[0]))" 2>/dev/null || true
+fi
+
 # Isolated per-project sandbox for agent shell commands (Docker).
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "Building sandbox image noethara/devbox:latest (first time takes a few minutes)"

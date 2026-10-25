@@ -177,3 +177,10 @@ test('scaffold_app copies each template into an empty workspace',async()=>{
  }
  await assert.rejects(_scaffold(await mkdtemp(join(tmpdir(),'noethara-tpl-')),'php'),/Unknown template/);
 });
+
+test('finds attached image paths in chat messages',async()=>{
+ const { findImagePaths }=await import('./vision.mjs');
+ assert.deepEqual(findImagePaths('Make it like this\n\nProject assets uploaded to: uploads/My Shot (2).png, uploads/notes.txt, uploads/a.JPG.'),['uploads/My Shot (2).png','uploads/a.JPG']);
+ assert.deepEqual(findImagePaths('see design/ref.webp please'),['design/ref.webp']);
+ assert.deepEqual(findImagePaths('no images here'),[]);
+});

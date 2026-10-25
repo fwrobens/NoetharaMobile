@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
 import { ChatCodeBlock } from './ChatCodeBlock';
 import { ChatAttachmentPicker, type ChatAttachment } from './ChatAttachmentPicker';
+import { WorkspacePreview } from './WorkspacePreview';
 import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
@@ -62,6 +63,8 @@ export function ConnectedChat({
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const [attachments,setAttachments]=useState<ChatAttachment[]>([]);
   const [workspaceStatus,setWorkspaceStatus]=useState('');
+  const [previewUrl,setPreviewUrl]=useState<string|null>(null);
+  const [previewLoading,setPreviewLoading]=useState(false);
   const [agentBusy,setAgentBusy]=useState(false);
   const [pendingEdits,setPendingEdits]=useState<GithubProposedEdit[]>([]);
   const [reviewEdit,setReviewEdit]=useState<GithubProposedEdit|null>(null);
@@ -223,6 +226,15 @@ export function ConnectedChat({
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
     }finally{if(mounted.current)setThinking(false);}
   }
+  async function showPreview(){
+    if(!managedId)return;
+    setPreviewLoading(true);
+    try{
+      const result=await managedWorkspace.startPreview(managedId);
+      setPreviewUrl(result.url);
+    }catch(e){Alert.alert('Preview unavailable',e instanceof Error?e.message:'Unable to start Vite preview');}
+    finally{setPreviewLoading(false);}
+  }
   async function showWorkspaces(){
     setWorkspacePickerOpen(true);
     try{setManagedProjects((await managedWorkspace.list()).workspaces);}
@@ -296,11 +308,18 @@ export function ConnectedChat({
         {Icon('file-text',16,PURPLE)}<Text style={styles.fileLabel} numberOfLines={1}>{attachedFile.repo} / {attachedFile.path}</Text>
         <Pressable onPress={onRemoveFile} accessibilityLabel="Remove file">{Icon('x',17,MUTED)}</Pressable>
       </View>}
+      <View style={styles.projectTools}>
       <Pressable onPress={()=>void showWorkspaces()} style={styles.projectPicker}>
         {Icon('folder',17,MUTED)}
         <Text style={styles.projectName} numberOfLines={1}>{managedId?'Workspace / '+managedId:attachedProject?attachedProject.repo:attachedFile?attachedFile.repo:'Choose workspace'}</Text>
         {Icon('chevron-down',16,MUTED)}
       </Pressable>
+      {managedId&&<Pressable style={styles.previewAction} onPress={()=>void showPreview()}
+        disabled={previewLoading} accessibilityLabel="Open live web preview">
+        {previewLoading?<ActivityIndicator size="small" color={PURPLE}/>:Icon('monitor',16,PURPLE)}
+        <Text style={styles.previewLabel}>Preview</Text>
+      </Pressable>}
+      </View>
       <LinearGradient colors={['#FFFFFF','#F8F6F2']} style={styles.composer}>
         <TextInput value={prompt} onChangeText={setPrompt} multiline maxLength={14000}
           placeholder="Message your coding assistant…" placeholderTextColor="#A4A0A7"
@@ -318,6 +337,7 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
+    <WorkspacePreview url={previewUrl} visible={Boolean(previewUrl)} onClose={()=>setPreviewUrl(null)}/>
     <ChatAttachmentPicker visible={attachmentOpen} onClose={()=>setAttachmentOpen(false)}
       onPicked={asset=>setAttachments(current=>current.length<4?[...current,asset]:current)}
       onError={message=>Alert.alert('Attachment failed',message)}/>
@@ -377,6 +397,10 @@ const styles=StyleSheet.create({
   attachmentChip:{maxWidth:170,flexDirection:'row',gap:7,alignItems:'center',
     paddingHorizontal:11,paddingVertical:9,backgroundColor:'#F1EAF8',borderRadius:11},
   attachmentName:{flexShrink:1,fontSize:11.5,color:PURPLE},
+  projectTools:{flexDirection:'row',alignItems:'center',gap:9},
+  previewAction:{flexDirection:'row',gap:7,alignItems:'center',paddingHorizontal:11,
+    paddingVertical:9,backgroundColor:'#F1ECF8',borderRadius:22},
+  previewLabel:{color:PURPLE,fontWeight:'600',fontSize:12},
   workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
     borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},
   workspaceName:{fontSize:14,fontWeight:'600',color:INK},

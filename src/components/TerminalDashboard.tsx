@@ -143,7 +143,7 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
           <Text numberOfLines={1} style={styles.projectPath}>{project.path}</Text>
           <Text style={styles.projectSub}>Persistent Linux project · View files</Text>
         </View>
-        <Pressable onPress={()=>onAgent('opencode',project.id)} accessibilityLabel={'Open CLI in '+project.name}
+        <Pressable onPress={event=>{event.stopPropagation();onAgent('opencode',project.id);}} accessibilityLabel={'Open CLI in '+project.name}
           style={styles.topControl}><Icon name="terminal" size={21} color="#7654C8"/></Pressable>
       </Pressable>)}
 

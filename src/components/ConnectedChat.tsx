@@ -263,14 +263,15 @@ export function ConnectedChat({
       <Pressable onPress={onSettings} style={styles.headerButton} accessibilityLabel="Settings">{Icon('settings',21)}</Pressable>
     </View>
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.chatContent}
-      onContentSizeChange={()=>scrollRef.current?.scrollToEnd({animated:true})}>
+      onContentSizeChange={()=>{if(thinking||messages.length<4)scrollRef.current?.scrollToEnd({animated:false});}}>
       {loadingHistory&&<View style={{alignItems:'center',paddingVertical:40,gap:12}}><ActivityIndicator color={PURPLE}/><Text style={{color:MUTED}}>Loading conversation…</Text></View>}
       {!loadingHistory&&!messages.length&&<View style={styles.empty}>
         <View style={styles.emptyIcon}>{Icon('terminal',34,PURPLE)}</View>
         <Text style={styles.emptyTitle}>What are we building?</Text>
         <Text style={styles.emptyDescription}>A quieter space to think, write code and review projects with Beam or NVIDIA.</Text>
       </View>}
-      {messages.map((message,i)=>message.role==='user'
+      {messages.length>40&&<Text style={styles.historyNotice}>Showing the latest 40 messages to keep the phone responsive. Older messages remain saved.</Text>}
+      {messages.slice(-40).map((message,i)=>message.role==='user'
         ? <View key={i} style={styles.userRow}><View style={styles.userBubble}>
             <Text selectable style={styles.userText}>{message.content}</Text>
           </View></View>
@@ -401,6 +402,7 @@ const styles=StyleSheet.create({
   previewAction:{flexDirection:'row',gap:7,alignItems:'center',paddingHorizontal:11,
     paddingVertical:9,backgroundColor:'#F1ECF8',borderRadius:22},
   previewLabel:{color:PURPLE,fontWeight:'600',fontSize:12},
+  historyNotice:{color:MUTED,textAlign:'center',fontSize:11.5,paddingVertical:12},
   workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
     borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},
   workspaceName:{fontSize:14,fontWeight:'600',color:INK},

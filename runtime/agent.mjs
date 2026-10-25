@@ -105,7 +105,7 @@ const functions=[
   type:'object',properties:{path:{type:'string'}},required:['path']}}},
  {type:'function',function:{name:'write_file',description:'Write a complete source file in the selected workspace, creating parent directories',parameters:{
   type:'object',properties:{path:{type:'string'},content:{type:'string'}},required:['path','content']}}},
- {type:'function',function:{name:'start_preview',description:'Start the project's private live Vite web preview after source generation and dependency installation.',parameters:{type:'object',properties:{}}}},
+ {type:'function',function:{name:'start_preview',description:'Start the private live Vite web preview after source generation and dependency installation.',parameters:{type:'object',properties:{}}}},
  {type:'function',function:{name:'run_command',description:'Run an approved npm command for dependencies, building or testing. No arbitrary shell commands.',parameters:{
   type:'object',properties:{command:{type:'string',enum:['npm install','npm run build','npm run typecheck','npm test']}},required:['command']}}},
 ];

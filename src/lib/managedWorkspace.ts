@@ -14,7 +14,7 @@ async function api<T>(path:string,method:'GET'|'POST'|'PUT'='GET',
     if(!token)throw Error('GitHub authentication has expired. Reconnect GitHub.');
   }
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:path.includes('/upload')?45000:25000);
+  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:path.includes('/upload')?45000:path.includes('/preview/start')?42000:25000);
   try {
     const result=await fetch(HOST+path,{
       method,
@@ -68,9 +68,11 @@ export const managedWorkspace={
   startAgent:(id:string,messages:Array<{role:'user'|'assistant';content:string}>,model:string)=>
     api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model}),
   agentStatus:(id:string,jobId:string)=>
-    api<{jobId:string;status:'running'|'completed'|'failed';answer:string;error:string;
+    api<{jobId:string;status:'running'|'completed'|'failed'|'paused';answer:string;error:string;
       events:Array<{id:number;kind:string;message:string;at:number}>}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)),
+  continueAgent:(id:string,jobId:string)=>api<{jobId:string;status:string}>(
+    '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/continue','POST',{}),
   cancelAgent:(id:string,jobId:string)=>api<{cancelled:boolean}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/cancel','POST',{}),
   status:(id:string)=>api<{workspace:string;changes:string}>('/workspaces/'+p(id)+'/git-status'),

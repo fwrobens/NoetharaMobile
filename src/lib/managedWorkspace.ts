@@ -45,4 +45,7 @@ export const managedWorkspace={
   saveFile:(id:string,path:string,content:string,expectedSha256:string)=>api<{saved:boolean;path:string}>(
     '/workspaces/'+p(id)+'/file','PUT',{path,content,expectedSha256}),
   status:(id:string)=>api<{workspace:string;changes:string}>('/workspaces/'+p(id)+'/git-status'),
+  review:(id:string)=>api<{status:string;diff:string;staged:string}>('/workspaces/'+p(id)+'/git-review'),
+  push:(id:string,message:string)=>api<{published:boolean;repo:string;branch:string;files:string[]}>(
+    '/workspaces/'+p(id)+'/git-push','POST',{approved:true,message},true),
 };

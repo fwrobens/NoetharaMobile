@@ -504,8 +504,13 @@ async function action(dir,name,arg,job){
  if(name==='process_logs')return await processLogs(job.workspaceId,dir,String(arg.name||''));
  if(name==='stop_process')return await stopProcess(job.workspaceId,dir,String(arg.name||''));
  if(name==='list_processes')return await listProcesses(job.workspaceId,dir);
- if(name==='discover_mcp_tools')return JSON.stringify(await discoverTools(String(arg.server||''))).slice(0,9000);
+ if(name==='discover_mcp_tools'){
+  if(arg.server==='21st'&&!job.input?.use21st)throw Error('21st toggle is off for this request');
+  return JSON.stringify(await discoverTools(String(arg.server||''))).slice(0,9000);
+ }
  if(name==='use_mcp_tool'){
+  if(arg.server==='21st'&&!job.input?.use21st)
+   throw Error('21st component research is not enabled for this request. Ask the user to enable the 21st toggle.');
   const result=await callTool(String(arg.server||''),String(arg.name||''),arg.arguments,{counts:job.mcpCounts||(job.mcpCounts={})});
   return result.text;
  }
@@ -573,12 +578,13 @@ async function generate(job,dir,body){
  const shell=box.available&&permission!=='safe';
  const vision=await visionStatus().catch(()=>({images:false,screenshots:false,model:''}));
  const frontEnd=await readFile(join(dir,'package.json'),'utf8').then(t=>/"vite"/.test(t),()=>true);
- const mcpEnabled=serverReady('context7')||serverReady('21st');
+ const use21st=Boolean(job.input?.use21st)&&serverReady('21st');
+ const mcpEnabled=serverReady('context7')||use21st;
  const tools=[...(shell?functions:BASE_FUNCTIONS),...(vision.screenshots?[REVIEW_FN]:[]),
   ...(mcpEnabled?MCP_FUNCTIONS:[])];
  const mcpNote='\n\n# MCP tools\n'+
   (serverReady('context7')?'Context7: discover_mcp_tools context7, then resolve-library-id/query-docs.':'Context7 unavailable on AWS.')+'\n'+
-  (serverReady('21st')?'21st.dev: discover_mcp_tools 21st, search first, retrieve at most two component sources.':'21st.dev unavailable or disabled on AWS.');
+  (use21st?'21st.dev: user enabled this session; discover_mcp_tools 21st, search first, retrieve at most two component sources.':'21st.dev is off for this request or unavailable on AWS.');
  let imageNote='';
  const lastUser=[...origin].reverse().find(m=>m.role==='user');
  const imagePaths=lastUser?findImagePaths(lastUser.content):[];
@@ -755,7 +761,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   if(active>=1){deny(res,429,'Coding job already running on this single-owner server');return true}
   const id=randomUUID();
   const permission=['ask','auto','safe'].includes(input.permission)?input.permission:'ask';
-  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages,permission});
+  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages,permission,use21st:input.use21st===true});
   jobs.set(id,job);event(job,'Starting the coding agent','progress');
   void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
     .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
@@ -792,7 +798,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const note='Continue the previous coding task from the existing files. Inspect current source and fix unfinished or failed steps. Do not recreate already working files. Previous session status: '+previous.status+'. '+(previous.answer||previous.error||'').slice(0,1100);
   const history=previous.input.messages.slice(-8);
   // A new instruction keeps the prior task in history while explicitly resuming.
-  const input={model:previous.input.model,permission:previous.input.permission||'ask',messages:[...history,{role:'user',content:note}].slice(-10)};
+  const input={model:previous.input.model,permission:previous.input.permission||'ask',use21st:Boolean(previous.input.use21st),messages:[...history,{role:'user',content:note}].slice(-10)};
   const job=newJob(id,workspaceId,input);job.plan=(previous.plan||[]).map(s=>({...s}));
   jobs.set(id,job);
   event(job,'Continuing from the files already in your workspace.','commentary');

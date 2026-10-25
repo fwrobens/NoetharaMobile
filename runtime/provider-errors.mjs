@@ -7,7 +7,7 @@ export function classifyNvidiaError(status,raw=''){
  const detail=typeof body?.detail==='string'?body.detail:String(raw||'');
  if(status===404&&/function.{0,200}(?:not found for account|specified function in account|not found in account)/i.test(detail)){
   return {kind:'provider_access',blocked:true,
-   message:'NVIDIA hosted inference returned HTTP 404: the model function is unavailable for this NVIDIA account. This is an endpoint/account provisioning issue, not a failed coding-tool action. Check NVIDIA Build account access or contact help@build.nvidia.com.'};
+   message:'NVIDIA hosted inference returned HTTP 404: this model function is unavailable to the current account. This may be a model-specific hosted endpoint outage or an account-access issue; it is not a failed coding-tool action. Try another supported NVIDIA model and test its tool calling before switching Noethara. If all models fail, contact NVIDIA Build support.'};
  }
  if(status===401||status===403){
   return {kind:'authentication',blocked:true,

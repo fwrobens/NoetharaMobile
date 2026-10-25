@@ -5,10 +5,11 @@ import { Feather } from '@expo/vector-icons';
 export type AgentEvent={id:number;kind:string;message:string;at:number;ref?:string;
  status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number;output?:string};
 export type AgentPlanStep={title:string;status:'pending'|'active'|'done'};
-export type AgentChecks=Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;
+export type AgentChecks=Partial<Record<'install'|'typecheck'|'build'|'style'|'test'|'preview',string>>;
 export type AgentApproval={ref:string;command:string;reason:string};
 export type AgentMeta={plan:AgentPlanStep[];phase:string;files:string[];checks:AgentChecks;startedAt:number|null;
- checkpoints?:Array<{sha:string;label:string;at:number}>;pendingApproval?:AgentApproval|null};
+ checkpoints?:Array<{sha:string;label:string;at:number}>;pendingApproval?:AgentApproval|null;
+ metrics?:{modelMs:number;toolMs:number;requests:number;commands:number}|null};
 export const emptyAgentMeta:AgentMeta={plan:[],phase:'',files:[],checks:{},startedAt:null,checkpoints:[],pendingApproval:null};
 
 type IconName=React.ComponentProps<typeof Feather>['name'];
@@ -21,7 +22,7 @@ const PHASES:Record<string,string>={starting:'Starting up',planning:'Planning th
 const TOOL_ICONS:Record<string,IconName>={list_files:'folder',read_file:'file-text',write_file:'edit-3',
  edit_file:'edit-2',delete_file:'trash-2',scaffold_app:'box',run_command:'terminal',start_preview:'monitor'};
 const KIND_ICONS:Record<string,IconName>={read:'file-text',write:'edit-3',command:'terminal',preview:'monitor',
- error:'alert-circle',commentary:'message-circle',paused:'pause-circle',done:'check-circle',result:'check'};
+ error:'alert-circle',commentary:'message-circle',model:'cpu',paused:'pause-circle',done:'check-circle',result:'check'};
 const EXT_COLORS:Record<string,string>={tsx:'#3B82C4',ts:'#3B82C4',js:'#C9A227',jsx:'#C9A227',json:'#8A7F5B',
  css:'#7457B5',html:'#D0643B',md:'#6B7280'};
 
@@ -215,7 +216,7 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
  const pressScale=useRef(new Animated.Value(1)).current;
  if(!busy&&!events.length&&!headline)return null;
  const last=merged.at(-1);
- const failed=!busy&&(meta.phase==='failed'||meta.phase==='paused'||last?.kind==='error'||last?.kind==='paused');
+ const failed=!busy&&(meta.phase==='failed'||meta.phase==='paused'||meta.checks.typecheck==='failed'||meta.checks.build==='failed'||last?.kind==='error'||last?.kind==='paused');
  const state:'busy'|'done'|'failed'=busy?'busy':failed?'failed':'done';
  const running=busy?[...merged].reverse().find(e=>e.status==='running'):undefined;
  const thought=[...merged].reverse().find(e=>e.kind==='commentary');
@@ -241,6 +242,7 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
    </View>
   </Pressable>
   <ProgressBar progress={progress} busy={busy}/>
+  {!!meta.metrics?.requests&&<Text style={styles.performance}>AI {elapsedLabel(meta.metrics.modelMs)} across {meta.metrics.requests} response{meta.metrics.requests===1?'':'s'} · Tools {elapsedLabel(meta.metrics.toolMs)}</Text>}
   {total>0&&<View style={styles.plan}>
    <Text style={styles.section}>PLAN · {meta.plan.filter(s=>s.status==='done').length}/{total}</Text>
    {meta.plan.map((s,i)=><PlanRow key={i+s.title} step={s} index={i}/>)}
@@ -256,6 +258,7 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
   {hasChecks&&<View style={styles.checks}>
    <CheckBadge label="Types" value={meta.checks.typecheck}/>
    <CheckBadge label="Build" value={meta.checks.build}/>
+   {meta.checks.style&&<CheckBadge label="CSS" value={meta.checks.style}/>}
    <CheckBadge label="Preview" value={meta.checks.preview}/>
   </View>}
   {expanded&&<View style={styles.timeline}>
@@ -290,6 +293,7 @@ const styles=StyleSheet.create({
  orbRing:{position:'absolute',width:30,height:30,borderRadius:15,borderWidth:1.5},
  orbArc:{position:'absolute',width:34,height:34,borderRadius:17,borderWidth:2,borderColor:'transparent',borderTopColor:C.accent,borderRightColor:C.accentSoft},
  orbCore:{width:26,height:26,borderRadius:13,alignItems:'center',justifyContent:'center'},
+ performance:{fontSize:10.5,color:C.muted,fontVariant:['tabular-nums'],letterSpacing:0.1},
  bar:{height:4,borderRadius:2,backgroundColor:C.tint,overflow:'hidden'},
  barFill:{position:'absolute',left:0,top:0,bottom:0,borderRadius:2,backgroundColor:C.accent},
  barShimmer:{position:'absolute',top:0,bottom:0,width:80,backgroundColor:'rgba(255,255,255,0.55)'},

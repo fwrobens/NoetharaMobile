@@ -86,6 +86,7 @@ export function ConnectedChat({
   const mounted=useRef(true);
   const chatIdRef=useRef<string|null>(conversationId??null);
   const [permission,setPermission]=useState<PermissionMode>('ask');
+  const [use21st,setUse21st]=useState(false);
   useEffect(()=>{void getPermissionMode().then(m=>{if(mounted.current)setPermission(m);});},[]);
   function choosePermission(){
     const pick=(m:PermissionMode)=>{setPermission(m);void setPermissionMode(m);};
@@ -245,7 +246,7 @@ export function ConnectedChat({
              '\nThese are filesystem assets for your code; do not claim you visually analyzed uploaded images.'+
              (attachments.filter(a=>a.text).length?'\nAttached text source:\n'+attachments.filter(a=>a.text).map(a=>a.name+'\n'+a.text?.slice(0,10000)).join('\n'):'')}
             :m);
-        const started=await managedWorkspace.startAgent(active,contextual,resolvedModel,permission);
+        const started=await managedWorkspace.startAgent(active,contextual,resolvedModel,permission,use21st);
         if(mounted.current){setLastAgentJob(started.jobId);setCanContinue(false);}
         const result=await watchAgent(active,started.jobId,resolvedModel);
         return {result,contextWarning:'',edits:[] as GithubProposedEdit[]};
@@ -433,6 +434,13 @@ export function ConnectedChat({
         {previewLoading?<ActivityIndicator size="small" color={PURPLE}/>:Icon('monitor',16,PURPLE)}
         <Text style={styles.previewLabel}>Preview</Text>
       </Pressable>}
+      {managedId&&<Pressable style={[styles.mcpAction,use21st&&styles.mcpActionActive]}
+        accessibilityRole="switch" accessibilityState={{checked:use21st}}
+        accessibilityLabel="Use 21st design components for this coding request"
+        onPress={()=>setUse21st(v=>!v)}>
+        {Icon('layout',14,use21st?'#FFFFFF':PURPLE)}
+        <Text style={[styles.mcpText,use21st&&{color:'#FFFFFF'}]}>21st</Text>
+      </Pressable>}
       </View>
       <LinearGradient colors={['#FFFFFF','#F8F6F2']} style={styles.composer}>
         <TextInput value={prompt} onChangeText={setPrompt} multiline maxLength={14000}
@@ -515,6 +523,9 @@ const styles=StyleSheet.create({
   previewAction:{flexDirection:'row',gap:7,alignItems:'center',paddingHorizontal:11,
     paddingVertical:9,backgroundColor:'#F1ECF8',borderRadius:22},
   previewLabel:{color:PURPLE,fontWeight:'600',fontSize:12},
+  mcpAction:{flexDirection:'row',gap:4,alignItems:'center',paddingHorizontal:9,minHeight:36,borderRadius:18,backgroundColor:'#F1ECF8'},
+  mcpActionActive:{backgroundColor:PURPLE},
+  mcpText:{color:PURPLE,fontWeight:'700',fontSize:11},
   retryInline:{flexDirection:'row',alignItems:'center',gap:9,
     paddingVertical:11,paddingHorizontal:12,marginVertical:5,alignSelf:'flex-start'},
   retryInlineLabel:{color:PURPLE,fontWeight:'600',fontSize:12.5},

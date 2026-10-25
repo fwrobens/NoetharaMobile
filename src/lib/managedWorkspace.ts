@@ -14,7 +14,7 @@ async function api<T>(path:string,method:'GET'|'POST'|'PUT'='GET',
     if(!token)throw Error('GitHub authentication has expired. Reconnect GitHub.');
   }
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:25000);
+  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:path.includes('/upload')?45000:25000);
   try {
     const result=await fetch(HOST+path,{
       method,
@@ -51,6 +51,9 @@ export const managedWorkspace={
     '/workspaces/'+p(id)+'/file?path='+p(path)),
   saveFile:(id:string,path:string,content:string,expectedSha256:string)=>api<{saved:boolean;path:string}>(
     '/workspaces/'+p(id)+'/file','PUT',{path,content,expectedSha256}),
+  upload:(id:string,file:{name:string;type:string;data:string})=>
+    api<{path:string;name:string;size:number;type:string}>(
+      '/workspaces/'+p(id)+'/upload','POST',file),
   startAgent:(id:string,messages:Array<{role:'user'|'assistant';content:string}>,model:string)=>
     api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model}),
   agentStatus:(id:string,jobId:string)=>

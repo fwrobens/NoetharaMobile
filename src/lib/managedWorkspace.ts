@@ -31,9 +31,14 @@ async function api<T>(path:string,method:'GET'|'POST'|'PUT'='GET',
     try{json=raw?JSON.parse(raw):{}}catch{
       const kind=result.headers.get('content-type')||'';
       throw Error('Workspace server returned '+result.status+' '+(kind.includes('text/html')?'HTML':'non-JSON')+
-        '. Expo is running, but the AWS terminal gateway may still be on the old code. Update and restart noethara-runtime on EC2.');}
+        '. Expo is running, but the AWS terminal gateway may still be on the old code. Update the AWS gateway and restart noethara-terminal on EC2.');}
     if(!result.ok){
-      if(result.status===404)throw Error('Workspace API not deployed on AWS (404). Update ~/NoetharaMobile and restart noethara-runtime; Expo reload alone cannot enable the server routes.');
+      if(result.status===404){
+        const preview=path.includes('/preview/');
+        throw Error(preview?
+          'Live preview route unavailable on AWS (404). Deploy the latest NoetharaMobile gateway and restart noethara-terminal on EC2.':
+          'Workspace resource not found (404). '+String(json.error||'Check the workspace name and EC2 gateway version.'));
+      }
       throw Error(json.error||('Workspace request failed ('+result.status+')'));
     }
     return json as T;

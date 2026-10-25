@@ -37,6 +37,13 @@ unset NOETHARA_TERMINAL_TOKEN || true
  else npm install --omit=dev --no-audit --no-fund
  fi
 )
+# Evaluate the actual runtime import before touching a running PM2 service.
+# node --check alone cannot detect an invalid WebSocketServer constructor.
+(
+ cd "$REPO/runtime"
+ node --input-type=module -e "await import('./preview.mjs'); console.log('[Noethara] WebSocket preview module healthy.')"
+)
+node --test "$REPO/runtime/agent.test.mjs"
 
 # Older scripts created two competing PM2 process names. Only manage a process
 # if it points at this project's server.mjs; never stop unrelated services.

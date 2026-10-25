@@ -86,7 +86,7 @@ test('agent loop scaffolds, edits, verifies and reports with a scripted model',a
  const script=[
   {tool_calls:[{id:'1',type:'function',function:{name:'update_plan',arguments:JSON.stringify({steps:[{title:'Scaffold',status:'active'},{title:'Build UI',status:'pending'}]})}}]},
   {content:'<tool_call>{"name":"scaffold_app","arguments":{}}</tool_call>'},
-  {tool_calls:[{id:'3',type:'function',function:{name:'edit_file',arguments:JSON.stringify({path:'./src/App.tsx',find:'Your app starts here',replace:'Hello Noethara'})}}]},
+  {tool_calls:[{id:'3',type:'function',function:{name:'edit_file',arguments:JSON.stringify({path:'./src/App.tsx',find:'Your next great idea.',replace:'Hello Noethara'})}}]},
   {content:'Done.'},
   {content:'**Built:** demo'},
  ];

@@ -17,6 +17,27 @@ import { join } from 'node:path';
 
 const previews=new Map();
 const maxActive=2;
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function ready(preview,timeoutMs=18000){
+ const until=Date.now()+timeoutMs;
+ while(Date.now()<until){
+  if(preview.child.exitCode!==null || preview.failed)break;
+  try{
+   const response=await fetch('http://127.0.0.1:'+preview.port+'/preview/'+preview.id+'/',{
+    signal:AbortSignal.timeout(1800),
+    redirect:'manual'
+   });
+   if(response.status>=200&&response.status<400){
+    preview.status='ready';
+    return true;
+   }
+   preview.lastHttpStatus=response.status;
+  }catch{}
+  await pause(650);
+ }
+ preview.status='failed';
+ return false;
+}
 const send=(res,status,body)=>{
  res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
  res.end(JSON.stringify(body));
@@ -26,7 +47,12 @@ function isValidId(id){return /^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(id)}
 export async function startPreview(dir,id){
  if(!isValidId(id))throw Error('Invalid preview project');
  const old=previews.get(id);
- if(old?.child && old.child.exitCode===null)return old;
+ if(old?.child && old.child.exitCode===null && old.status==='ready')return old;
+ if(old?.child && old.child.exitCode===null){
+  if(await ready(old,5500))return old;
+  old.child.kill('SIGTERM');
+  previews.delete(id);
+ }
  const running=[...previews.values()].filter(p=>p.child.exitCode===null).length;
  if(running>=maxActive)throw Error('Two previews are already running. Close another before starting.');
  const packageFile=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
@@ -41,11 +67,16 @@ export async function startPreview(dir,id){
   env:{HOME:dir,PATH:process.env.PATH||'/usr/bin:/bin',NODE_ENV:'development',
     VITE_HMR_HOST:'terminal.noethara.cloud',NO_COLOR:'1'},
  });
- const item={id,port,child,secret,created:Date.now(),output:''};
+ const item={id,port,child,secret,created:Date.now(),output:'',status:'starting',failed:false};
  previews.set(id,item);
  const collect=b=>{item.output=(item.output+b.toString('utf8')).slice(-4500)};
  child.stdout.on('data',collect);child.stderr.on('data',collect);
- child.on('error',e=>{item.output='Preview error: '+e.message});
+ child.on('error',e=>{item.failed=true;item.status='failed';item.output='Preview error: '+e.message});
+ child.on('exit',code=>{if(item.status!=='failed')item.status='stopped';item.output+='\\nVite exited with code '+code;});
+ if(!await ready(item)){
+  if(child.exitCode===null)child.kill('SIGTERM');
+  throw Error('Vite preview did not become ready. '+(item.output||'Check npm install and the dev script.').slice(-1100));
+ }
  return item;
 }
 export async function handlePreviewManagement(req,res,url,id,dir){
@@ -55,12 +86,13 @@ export async function handlePreviewManagement(req,res,url,id,dir){
  if(req.method==='POST'&&action==='start'){
   const preview=await startPreview(dir,id);
   const publicUrl='https://terminal.noethara.cloud/preview/'+encodeURIComponent(id)+'/?ticket='+preview.secret;
-  send(res,200,{url:publicUrl,engine:'vite',status:'starting',message:'Vite development preview on your managed Linux workspace'});
+  send(res,200,{url:publicUrl,engine:'vite',status:'ready',message:'Vite preview is responding on the private workspace gateway'});
   return true;
  }
  if(req.method==='GET'&&action==='status'){
   const preview=previews.get(id);
-  send(res,200,preview?{status:preview.child.exitCode===null?'running':'stopped',output:preview.output,engine:'vite'}:{status:'stopped'});
+  send(res,200,preview?{status:preview.status,output:preview.output,engine:'vite',
+    lastHttpStatus:preview.lastHttpStatus||null}:{status:'stopped'});
   return true;
  }
  if(req.method==='POST'&&action==='stop'){

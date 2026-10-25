@@ -38,9 +38,9 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
   const frameHeight=Math.max(440,height-insets.top-insets.bottom-190)/scale;
   const wrappedWidth=selected.width*scale;
   const wrappedHeight=frameHeight*scale;
-  // The private terminal host uses a SameSite=Strict preview cookie. Browser
-  // iframes cannot send that cookie cross-site; the Pages Function under
-  // /preview/* securely forwards requests from the current first-party origin.
+  // Generated Vite apps must not share the Noethara app's JS/storage origin.
+  // A separate preview subdomain on the same noethara.cloud site lets Safari
+  // send the HttpOnly SameSite=Strict preview cookie inside our iframe.
   const browserUrl=useMemo(()=>{
     if(!url||typeof window==='undefined')return null;
     try{
@@ -48,7 +48,7 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
       if(parsed.origin!=='https://terminal.noethara.cloud')return null;
       const parts=parsed.pathname.split('/');
       if(parts[1]!=='preview'||!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(parts[2]||''))return null;
-      return window.location.origin+parsed.pathname+parsed.search;
+      return 'https://preview.noethara.cloud'+parsed.pathname+parsed.search;
     }catch{return null;}
   },[url]);
   const canEmbed=Boolean(browserUrl);

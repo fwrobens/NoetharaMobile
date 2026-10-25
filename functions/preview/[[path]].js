@@ -1,16 +1,17 @@
-// Same-origin, cookie-authenticated preview gateway for the Noethara browser app.
-//
-// Safari blocks third-party cookies inside iframes. Proxying only /preview/:id/*
-// through our own Pages origin lets the existing backend exchange a one-time
-// preview ticket for a Secure, HttpOnly, SameSite=Strict first-party cookie.
-// The upstream must still validate that cookie on EVERY request/WebSocket.
-// This function does NOT proxy arbitrary URLs or bypass backend authentication.
+// Isolated HTTPS preview proxy, served ONLY from preview.noethara.cloud.
+// app.noethara.cloud and preview.noethara.cloud are separate browser origins
+// but the same site, so SameSite=Strict preview capability cookies work in
+// Safari iframes without exposing the Noethara app's stored authentication.
+// Backend continues validating the workspace-scoped preview secret on every
+// HTTP request and WebSocket upgrade. Never proxy arbitrary domains or paths.
 const PREVIEW_PATH = /^\/preview\/[A-Za-z][A-Za-z0-9_-]{0,47}(?:\/|$)/;
 const UPSTREAM = 'https://terminal.noethara.cloud';
+const PREVIEW_HOST = 'preview.noethara.cloud';
+const APP_ORIGIN = 'https://app.noethara.cloud';
 
 export async function onRequest({ request }) {
   const url = new URL(request.url);
-  if (!PREVIEW_PATH.test(url.pathname)) {
+  if (url.hostname !== PREVIEW_HOST || !PREVIEW_PATH.test(url.pathname)) {
     return new Response('Invalid preview route', { status: 404 });
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -50,14 +51,14 @@ export async function onRequest({ request }) {
     const result = new Response(noBody ? null : response.body, response);
     result.headers.set('cache-control', 'private, no-store');
     result.headers.set('x-content-type-options', 'nosniff');
-    // Generated application HTML runs on the Pages origin behind this proxy.
-    // Without an enforced CSP sandbox, its scripts could read the Noethara
-    // SPA's same-origin storage and initiate authenticated actions.  CSP
-    // sandbox (without allow-same-origin) assigns a unique opaque origin even
-    // if someone opens the preview in a new top-level tab. Do not remove it.
-    // Keep script execution and forms for interactive Vite previews.
+    // This host is a completely different origin from the Noethara web app.
+    // Do NOT use CSP sandbox here: opaque origins cause module script fetches
+    // to omit the HttpOnly preview cookie, breaking Vite apps into white pages.
+    // The separate hostname provides the required isolation while retaining
+    // normal same-origin JS modules, cookies and HMR within each preview.
     result.headers.set('content-security-policy',
-      "sandbox allow-scripts allow-forms; frame-ancestors 'self'; object-src 'none'; base-uri 'none'");
+      "frame-ancestors " + APP_ORIGIN + "; object-src 'none'");
+    result.headers.set('referrer-policy','no-referrer');
     return result;
   } catch {
     return new Response('Preview proxy temporarily unavailable', {

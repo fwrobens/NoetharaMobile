@@ -11,7 +11,7 @@ import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
-import { ModelPicker, useModelPreference } from './ModelPicker';
+import { ModelPicker, useModelPreference, DEFAULT_WORKSPACE_CODING_MODEL } from './ModelPicker';
 import { DetachedError, clearAgentSession, getAgentSession, getPermissionMode, isDetached, rememberAgentSession, setPermissionMode, type PermissionMode } from '../lib/agentSessions';
 import { readProjectContext, type SelectedProject } from '../lib/githubRepoContext';
 import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
@@ -228,7 +228,9 @@ export function ConnectedChat({
       if(mounted.current)setManagedId(active);
     }
     if(active){
-      const resolvedModel=modelId==='Beam-1.0-501B-A23B'?'nvidia/nemotron-3-super-120b-a12b':modelId;
+      // Beam powers ordinary chat; workspace coding uses the verified NVIDIA
+      // tool-calling endpoint when the user has not selected an explicit model.
+      const resolvedModel=modelId==='Beam-1.0-501B-A23B'?DEFAULT_WORKSPACE_CODING_MODEL:modelId;
       if(mounted.current){setAgentBusy(true);setWorkspaceStatus('Preparing '+active+' on AWS…');}
       try{
         const attachedNames:string[]=[];

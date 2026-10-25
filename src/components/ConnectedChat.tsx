@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
 import { ChatCodeBlock } from './ChatCodeBlock';
+import { ChatAttachmentPicker, type ChatAttachment } from './ChatAttachmentPicker';
 import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
@@ -58,6 +59,8 @@ export function ConnectedChat({
   const [managedId,setManagedId]=useState<string|null>(null);
   const [managedProjects,setManagedProjects]=useState<ManagedWorkspace[]>([]);
   const [workspacePickerOpen,setWorkspacePickerOpen]=useState(false);
+  const [attachmentOpen,setAttachmentOpen]=useState(false);
+  const [attachments,setAttachments]=useState<ChatAttachment[]>([]);
   const [workspaceStatus,setWorkspaceStatus]=useState('');
   const [agentBusy,setAgentBusy]=useState(false);
   const [pendingEdits,setPendingEdits]=useState<GithubProposedEdit[]>([]);
@@ -103,7 +106,7 @@ export function ConnectedChat({
     let contextWarning='';
     // Coding tasks belong to a real Linux workspace, never text-only chat.
     let active=managedId;
-    if(!active&&!attachedProject&&/\b(build|create|generate|make|implement|scaffold)\b[\s\S]{0,95}\b(app|website|site|project|dashboard|frontend|backend)\b/i.test(instruction)){
+    if(!active&&!attachedProject&&((attachments.length>0)||/\b(build|create|generate|make|implement|scaffold)\b[\s\S]{0,95}\b(app|website|site|project|dashboard|frontend|backend)\b/i.test(instruction))){
       const name='Project'+Date.now().toString(36);
       const result=await managedWorkspace.create(name);
       active=result.workspace.id;
@@ -113,7 +116,18 @@ export function ConnectedChat({
       const resolvedModel=modelId==='Beam-1.0-501B-A23B'?'nvidia/nemotron-3-super-120b-a12b':modelId;
       if(mounted.current){setAgentBusy(true);setWorkspaceStatus('Preparing '+active+' on AWS…');}
       try{
-        const started=await managedWorkspace.startAgent(active,next.slice(-10),resolvedModel);
+        const attachedNames:string[]=[];
+        for(const attachment of attachments){
+          const uploaded=await managedWorkspace.upload(active,attachment);
+          attachedNames.push(uploaded.path);
+        }
+        const contextual=next.slice(-10).map((m,i,all)=>
+          i===all.length-1&&m.role==='user'&&attachedNames.length?
+            {...m,content:m.content+'\n\nProject assets uploaded to: '+attachedNames.join(', ')+
+             '\nThese are filesystem assets for your code; do not claim you visually analyzed uploaded images.'+
+             (attachments.filter(a=>a.text).length?'\nAttached text source:\n'+attachments.filter(a=>a.text).map(a=>a.name+'\n'+a.text?.slice(0,10000)).join('\n'):'')}
+            :m);
+        const started=await managedWorkspace.startAgent(active,contextual,resolvedModel);
         for(let attempt=0;attempt<180;attempt++){
           await delay(1200);
           const update=await managedWorkspace.agentStatus(active,started.jobId);
@@ -180,7 +194,7 @@ export function ConnectedChat({
       const session=await getSession();
       if(!session)throw Error('Sign in before sending prompts.');
       const {result,contextWarning,edits}=await buildRequest(next,first,initialModel||model);
-      if(mounted.current)setPendingEdits(edits);
+      if(mounted.current){setPendingEdits(edits);setAttachments([]);}
       if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
@@ -199,7 +213,7 @@ export function ConnectedChat({
     const id=await saveMessage(chatId,userEntry);
     try{
       const {result,contextWarning,edits}=await buildRequest(next,text,model);
-      if(mounted.current)setPendingEdits(edits);
+      if(mounted.current){setPendingEdits(edits);setAttachments([]);}
       if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages(prev=>[...prev,answer]);
@@ -265,6 +279,14 @@ export function ConnectedChat({
       {!!status&&<Text style={[styles.status,isError&&styles.error]}>{status}</Text>}
     </ScrollView>
     <View style={styles.composerDock}>
+      {attachments.length>0&&<View style={styles.attachmentsRow}>
+        {attachments.map((asset,i)=><Pressable key={asset.name+i} style={styles.attachmentChip}
+          onPress={()=>setAttachments(current=>current.filter((_,j)=>j!==i))}>
+          {Icon(asset.type.startsWith('image/')?'image':'file-text',15,PURPLE)}
+          <Text numberOfLines={1} style={styles.attachmentName}>{asset.name}</Text>
+          {Icon('x',14,MUTED)}
+        </Pressable>)}
+      </View>}
       {attachedProject&&<View style={styles.fileBadge}>
         {Icon('github',16,PURPLE)}
         <Text style={styles.fileLabel} numberOfLines={1}>{attachedProject.repo} · project context</Text>
@@ -284,7 +306,7 @@ export function ConnectedChat({
           placeholder="Message your coding assistant…" placeholderTextColor="#A4A0A7"
           style={styles.input} textAlignVertical="top"/>
         <View style={styles.actions}>
-          <Pressable onPress={onFiles} accessibilityLabel="Attach a GitHub file">{Icon('plus-circle',24,MUTED)}</Pressable>
+          <Pressable onPress={()=>setAttachmentOpen(true)} accessibilityLabel="Add photo or file">{Icon('plus-circle',24,MUTED)}</Pressable>
           <Pressable onPress={()=>setModelPickerOpen(true)} style={styles.modelPicker}>
             <Text numberOfLines={1} style={styles.modelLabel}>{model.includes('/')?model.split('/')[1]:model}</Text>
             {Icon('chevron-down',15,PURPLE)}
@@ -296,6 +318,9 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
+    <ChatAttachmentPicker visible={attachmentOpen} onClose={()=>setAttachmentOpen(false)}
+      onPicked={asset=>setAttachments(current=>current.length<4?[...current,asset]:current)}
+      onError={message=>Alert.alert('Attachment failed',message)}/>
     <Modal visible={workspacePickerOpen} transparent animationType="slide" onRequestClose={()=>setWorkspacePickerOpen(false)}>
       <View style={styles.modalOverlay}>
         <View style={styles.reviewSheet}>
@@ -348,6 +373,10 @@ export function ConnectedChat({
 }
 const styles=StyleSheet.create({
   root:{flex:1,backgroundColor:'#FCFAF7'},
+  attachmentsRow:{flexDirection:'row',flexWrap:'wrap',gap:8},
+  attachmentChip:{maxWidth:170,flexDirection:'row',gap:7,alignItems:'center',
+    paddingHorizontal:11,paddingVertical:9,backgroundColor:'#F1EAF8',borderRadius:11},
+  attachmentName:{flexShrink:1,fontSize:11.5,color:PURPLE},
   workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
     borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},
   workspaceName:{fontSize:14,fontWeight:'600',color:INK},

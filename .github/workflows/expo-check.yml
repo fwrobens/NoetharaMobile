@@ -19,6 +19,8 @@ jobs:
         run: npx expo install --check
       - name: Expo Doctor health check
         run: npx expo-doctor@latest
+      - name: Runtime syntax checks
+        run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs
       - name: TypeScript check
         run: npm run typecheck
       - name: Verify iOS JavaScript bundle compiles

@@ -26,14 +26,8 @@ jobs:
           deno-version: v2.x
       - name: Supabase Edge function type check
         run: deno check supabase/functions/noethara-api/index.ts
-      - name: Install isolated gateway dependencies
-        run: npm install --prefix runtime --no-audit --no-fund
-      # Temporary one-time step used to synchronize the canonical lockfile.
-      - name: Emit generated runtime lockfile for repo synchronization
-        run: |
-          echo 'NOETHARA_LOCKFILE_BEGIN'
-          cat runtime/package-lock.json
-          echo 'NOETHARA_LOCKFILE_END'
+      - name: Install isolated gateway dependencies from lockfile
+        run: npm ci --prefix runtime --no-audit --no-fund
       - name: Managed workspace API tests
         run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs runtime/agent-v2.test.mjs runtime/mcp/client.test.mjs runtime/pages-preview.test.mjs runtime/preview-hmr.test.mjs
       - name: Runtime syntax checks

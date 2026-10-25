@@ -69,7 +69,10 @@ export const managedWorkspace={
     api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model}),
   agentStatus:(id:string,jobId:string)=>
     api<{jobId:string;status:'running'|'completed'|'failed'|'paused';answer:string;error:string;
-      events:Array<{id:number;kind:string;message:string;at:number}>}>(
+      events:Array<{id:number;kind:string;message:string;at:number;ref?:string;
+        status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number}>;
+      phase?:string;plan?:Array<{title:string;status:'pending'|'active'|'done'}>;files?:string[];
+      checks?:Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;startedAt?:number}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)),
   continueAgent:(id:string,jobId:string)=>api<{jobId:string;status:string}>(
     '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/continue','POST',{}),

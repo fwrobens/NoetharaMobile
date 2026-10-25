@@ -6,7 +6,7 @@ import Markdown from 'react-native-markdown-display';
 import { ChatCodeBlock } from './ChatCodeBlock';
 import { ChatAttachmentPicker, type ChatAttachment } from './ChatAttachmentPicker';
 import { WorkspacePreview } from './WorkspacePreview';
-import { AgentActivity, type AgentEvent } from './AgentActivity';
+import { AgentActivity, ThinkingIndicator, emptyAgentMeta, type AgentEvent, type AgentMeta } from './AgentActivity';
 import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
@@ -65,6 +65,7 @@ export function ConnectedChat({
   const [attachments,setAttachments]=useState<ChatAttachment[]>([]);
   const [workspaceStatus,setWorkspaceStatus]=useState('');
   const [agentSteps,setAgentSteps]=useState<AgentEvent[]>([]);
+  const [agentMeta,setAgentMeta]=useState<AgentMeta>(emptyAgentMeta);
   const [lastAgentJob,setLastAgentJob]=useState<string|null>(null);
   const [canContinue,setCanContinue]=useState(false);
   const [previewUrl,setPreviewUrl]=useState<string|null>(null);
@@ -115,6 +116,8 @@ export function ConnectedChat({
       const update=await managedWorkspace.agentStatus(active,jobId);
       if(mounted.current){
         setAgentSteps(update.events);
+        setAgentMeta({plan:update.plan||[],phase:update.phase||update.status,files:update.files||[],
+          checks:update.checks||{},startedAt:update.startedAt||null});
         const recent=update.events.filter(e=>['commentary','read','write','command','preview','error','paused'].includes(e.kind)).at(-1);
         setWorkspaceStatus(recent?.message||'Working in '+active+'…');
       }
@@ -250,7 +253,7 @@ export function ConnectedChat({
     if(!text||thinking||loadingHistory)return;
     const userEntry:ChatEntry={role:'user',content:text};
     const next:ChatEntry[]=[...messages,userEntry];
-    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);setAgentSteps([]);setCanContinue(false);output('',false);
+    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);setAgentSteps([]);setAgentMeta(emptyAgentMeta);setCanContinue(false);output('',false);
     const id=await saveMessage(chatId,userEntry);
     try{
       const {result,contextWarning,edits}=await buildRequest(next,text,model);
@@ -316,12 +319,9 @@ export function ConnectedChat({
         : <View key={i} style={styles.assistantRow}>
             <Markdown style={mdStyle} rules={markdownRules}>{message.content.slice(0,55000)}</Markdown>
           </View>)}
-      {thinking&&!agentBusy&&<View style={styles.thinking}>
-        <ActivityIndicator color={PURPLE} size="small"/>
-        <Text style={styles.thinkingText}>Preparing your response…</Text>
-      </View>}
+      {thinking&&!agentBusy&&<ThinkingIndicator label="Thinking"/>}
       {(agentBusy||agentSteps.length>0||canContinue)&&<AgentActivity
-        events={agentSteps} busy={agentBusy} headline={workspaceStatus}
+        events={agentSteps} busy={agentBusy} headline={workspaceStatus} meta={agentMeta}
         continuable={canContinue&&!thinking} onContinue={()=>void resumeCoding()}/>}
       {isError&&canContinue&&<Pressable style={styles.retryInline} onPress={()=>void resumeCoding()}>
         {Icon('refresh-cw',15,PURPLE)}<Text style={styles.retryInlineLabel}>Retry this coding session</Text>

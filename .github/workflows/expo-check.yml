@@ -19,6 +19,11 @@ jobs:
         run: npx expo install --check
       - name: Expo Doctor health check
         run: npx expo-doctor@latest
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Supabase Edge function type check
+        run: deno check supabase/functions/noethara-api/index.ts
       - name: Runtime syntax checks
         run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs
       - name: TypeScript check

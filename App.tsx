@@ -28,11 +28,12 @@ import { LocalPlayground } from './src/components/LocalPlayground';
 import { RemoteTerminal } from './src/components/RemoteTerminal';
 import { TerminalDashboard } from './src/components/TerminalDashboard';
 import { WorkspaceFiles } from './src/components/WorkspaceFiles';
+import { WorkspaceDirectoryHub } from './src/components/WorkspaceDirectoryHub';
 import type { SelectedProject } from './src/lib/githubRepoContext';
 import { supabase, getSession, getPreferredModel, savePreferredModel, listConversations, recoverPendingOAuthRedirect, handleOAuthRedirect, type ConversationSummary, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
-type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground' | 'terminal' | 'workspace-files';
+type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'repos' | 'settings' | 'playground' | 'terminal' | 'workspace-files';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 type ToolKey = 'ESC' | '+' | 'TAB' | 'CTRL' | 'up' | 'down' | 'left' | 'right' | 'mic' | 'hide';
 
@@ -624,12 +625,14 @@ function RootApp() {
             {page==='workspace-files'&&activeWorkspaceId&&<WorkspaceFiles workspaceId={activeWorkspaceId}
               onBack={()=>go('terminals')} onTerminal={()=>openTerminal('opencode',activeWorkspaceId)}/>}
             {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
-              onSettings={()=>go('settings')} onFiles={()=>go('files')}
+              onSettings={()=>go('settings')} onFiles={()=>go('repos')}
               latest={lastMessage} conversationId={activeChatId}
               onChatSaved={id=>{setActiveChatId(id);refreshChats();}}
               initialModel={provider} attachedFile={githubFile} attachedProject={githubProject}
               onRemoveFile={()=>setGithubFile(null)} onRemoveProject={()=>setGithubProject(null)}/>}
-            {page==='files'&&<RepositoryBrowser onBack={()=>go('workspace')}
+            {page==='files'&&<WorkspaceDirectoryHub onBack={()=>go('workspace')} onNew={()=>go('terminals')}
+              onGitHub={()=>go('repos')} onSelect={id=>{setActiveWorkspaceId(id);go('workspace-files');}}/>}
+            {page==='repos'&&<RepositoryBrowser onBack={()=>go('files')}
               onChoose={file=>{setGithubFile(file);setGithubProject({repo:file.repo,branch:file.branch});newChat();}}
               onChooseRepo={project=>{setGithubFile(null);setGithubProject(project);newChat();}}/>}
             {page==='playground'&&<LocalPlayground onBack={()=>go('workspace')} onChat={(fileName,content)=>{

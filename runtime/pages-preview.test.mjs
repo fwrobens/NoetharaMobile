@@ -49,8 +49,8 @@ test('Pages preview proxy preserves ticket redirect and scoped cookie, but never
     // Generated code must be framed only by Noethara's separate app origin.
     // CSP sandbox intentionally is not used because it blocks Vite's ES modules.
     const policy = result.headers.get('content-security-policy') || '';
-    assert.doesNotMatch(policy, /\\bsandbox\\b/);
-    assert.match(policy, /frame-ancestors https:\/\/app\\.noethara\\.cloud/);
+    assert.ok(!policy.includes('sandbox'));
+    assert.ok(policy.includes('frame-ancestors https://app.noethara.cloud'));
   } finally {
     globalThis.fetch = realFetch;
   }

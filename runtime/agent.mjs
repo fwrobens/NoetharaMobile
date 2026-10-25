@@ -16,6 +16,8 @@ import { DESIGN_PROMPT } from './prompts/design.mjs';
 import { AGENT_2_PROMPT } from './prompts/agent2.mjs';
 import { chooseAgentProvider, completionRequest } from './providers.mjs';
 import { inspectQuality, summarizeCritique } from './orchestration.mjs';
+import { checkWebStyling } from './project-health.mjs';
+import { invalidateChecks, recordCheck, reconcilePlan } from './agent-checks.mjs';
 import { discoverTools, callTool, serverReady } from './mcp/client.mjs';
 import { sandboxStatus, classifyCommand, isRemembered, rememberAllow, runShell, startProcess, processLogs, stopProcess, listProcesses } from './sandbox.mjs';
 
@@ -297,6 +299,7 @@ function setPlan(job,steps){
  if(!Array.isArray(steps)||!steps.length)throw Error('update_plan needs steps: [{"title":"...","status":"pending|active|done"}]');
  job.plan=steps.slice(0,10).map(s=>typeof s==='string'?{title:s.slice(0,90),status:'pending'}:
   {title:String(s.title||s.step||s.name||'Step').slice(0,90),status:PLAN_STATUS[String(s.status||'').toLowerCase()]||'pending'});
+ reconcilePlan(job);
  const active=job.plan.find(s=>s.status==='active');
  if(active)event(job,active.title,'plan',{status:'active'});
  return 'Plan updated. Keep it current as you work.';
@@ -477,26 +480,42 @@ async function action(dir,name,arg,job){
  if(name==='update_plan')return setPlan(job,arg.steps);
  if(name==='list_files')return await listFiles(dir,String(arg.path||''));
  if(name==='read_file')return await readText(dir,String(arg.path||''));
- if(name==='write_file'){const r=await writeText(dir,arg.path,arg.content);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='edit_file'){const r=await editText(dir,arg.path,arg.find,arg.replace);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');job.dirty=true;return r}
+ if(name==='write_file'){const r=await writeText(dir,arg.path,arg.content);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='edit_file'){const r=await editText(dir,arg.path,arg.find,arg.replace);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');invalidateChecks(job);return r}
  if(name==='start_preview'){
   if(job.checks.build!=='passed')throw Error('Start preview only after a successful build');
-  await startPreview(dir,job.workspaceId);job.checks.preview='ready';
+  await startPreview(dir,job.workspaceId);recordCheck(job,'preview','ready');
   return 'Private live preview started; the user can open it with the Preview button in Noethara.';
  }
  if(name==='run_command'){
   const key=arg.command==='npm run typecheck'?'typecheck':arg.command==='npm run build'?'build':arg.command==='npm install'?'install':'test';
-  try{const out=await execute(dir,arg.command,job);job.checks[key]='passed';if(key==='build'||key==='typecheck')job.dirty=false;return out}
-  catch(e){job.checks[key]='failed';throw e}
+  try{
+   const out=await execute(dir,arg.command,job);
+   if(key==='build'){
+    const style=await checkWebStyling(dir);
+    if(!style.ok){recordCheck(job,'style','failed');throw Error('Unstyled Vite build: '+style.reason);}
+    recordCheck(job,'style','passed');
+   }
+   recordCheck(job,key,'passed');
+   return out;
+  }catch(e){recordCheck(job,key,'failed');throw e}
  }
  if(name==='run_shell'){
   const command=String(arg.command||'').trim();
   await authorize(job,command);
   const r=await runShell(job.workspaceId,dir,command,{timeoutSec:arg.timeout_seconds,onOutput:t=>streamOutput(job,t)});
   const m=/^npm run (build|typecheck)$|^npm (test)\b|^npm (install|i)\b/.exec(command);
-  if(m){const key=m[1]||m[2]||'install';job.checks[key]=r.exitCode===0?'passed':'failed';if(r.exitCode===0&&(key==='build'||key==='typecheck'))job.dirty=false}
+  if(m){
+   const key=m[1]||m[2]||'install';
+   if(key==='build'&&r.exitCode===0){
+    const style=await checkWebStyling(dir);
+    if(!style.ok){recordCheck(job,'style','failed');recordCheck(job,'build','failed');throw Error('Unstyled Vite build: '+style.reason);}
+    recordCheck(job,'style','passed');
+   }
+   recordCheck(job,key,r.exitCode===0?'passed':'failed');
+  }
   if(r.exitCode!==0&&!/^(?:ls|cat|grep|rg|find|git)\b/.test(command))job.dirty=true;
   return JSON.stringify({exitCode:r.exitCode,timedOut:Boolean(r.timedOut),output:r.output});
  }
@@ -522,6 +541,7 @@ async function action(dir,name,arg,job){
   const native=Boolean(pkg.dependencies?.['react-native-web']);
   const shots=await screenshotPreview('http://127.0.0.1:'+preview.port+'/preview/'+preview.id+'/',native?['phone','tablet']:['phone','desktop']);
   job.reviews=(job.reviews||0)+1;
+  reconcilePlan(job);
   const facts=shots.map(x=>'- '+x.name+' '+x.width+'x'+x.height+': '+(x.overflowX?'HORIZONTAL OVERFLOW (content '+x.scrollWidth+'px wide)':'fits width')+
    (x.emptyBody?', PAGE RENDERS BLANK':'')+(x.errors.length?', errors: '+x.errors.join(' | '):', no runtime errors')).join('\n');
   const critique=await askVision(key,REVIEW_PROMPT+(arg.focus?'\nFocus especially on: '+String(arg.focus).slice(0,300):'')+'\n\nMeasured by the browser:\n'+facts,

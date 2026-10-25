@@ -6,7 +6,7 @@ export function isManagedViteCommand(command,manifest={}){
  const vite=/^(?:vite|npx\s+vite)(?:\s|$)/i.test(dev);
  if(!vite)return false;
  const c=String(command||'').trim();
- return /(?:^|[\s;&|])(?:npx\s+vite|vite\s+(?:--host|--port)|npm\s+(?:run\s+dev|start)(?:\s|$)|pnpm\s+(?:dev|run\s+dev)(?:\s|$)|yarn\s+dev(?:\s|$))(?:\s|$)/i.test(c);
+ return /\bnpm\s+(?:run\s+dev|start)\b|\bnpx\s+vite\b|\b(?:pnpm\s+(?:dev|run\s+dev)|yarn\s+dev)\b|(?:^|[\s;&|])vite\s+(?:--host|--port)/i.test(c);
 }
 export function assertNoDuplicatePreview(command,manifest={}){
  if(isManagedViteCommand(command,manifest)){

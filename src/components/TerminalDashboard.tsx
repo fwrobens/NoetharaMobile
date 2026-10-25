@@ -62,13 +62,25 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
     try{setRepos((await noetharaAPI.repos()).repos);}catch{setRepos([]);}
   }
   async function create(){
+    if(repoName==='__new__'){
+      Alert.alert('Create GitHub repository','Create a new private GitHub repository and clone it into your Noethara workspace?',[
+        {text:'Cancel',style:'cancel'},
+        {text:'Create',onPress:()=>void performCreate()}
+      ]);
+      return;
+    }
+    await performCreate();
+  }
+  async function performCreate(){
     const name=projectName.trim();
     if(!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(name)){
       Alert.alert('Invalid name','Use letters, digits, underscores or hyphens (up to 48 characters).');return;
     }
     setSaving(true);
     try{
-      const result=repoName?await managedWorkspace.clone(repoName,name):await managedWorkspace.create(name);
+      const result=repoName==='__new__'?
+        await managedWorkspace.createGitHub(name):
+        repoName?await managedWorkspace.clone(repoName,name):await managedWorkspace.create(name);
       setCreateOpen(false);await refresh();onWorkspace(result.workspace.id);
     }catch(e){Alert.alert('Workspace not created',e instanceof Error?e.message:'Please try again.');}
     finally{setSaving(false);}
@@ -170,6 +182,11 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
               <Text style={styles.repoText}>Start blank workspace</Text>
               {!repoName&&<Icon name="check" size={17} color="#7654C8"/>}
             </Pressable>
+            <Pressable style={styles.repoOption} onPress={()=>setRepoName('__new__')}>
+              <Icon name="github" size={17} color="#7654C8"/>
+              <Text style={styles.repoText}>Create a private GitHub repository</Text>
+              {repoName==='__new__'&&<Icon name="check" size={17} color="#7654C8"/>}
+            </Pressable>
             {repos.map(repo=><Pressable key={repo.full_name} style={styles.repoOption}
               onPress={()=>{setRepoName(repo.full_name);
                 if(!projectName)setProjectName(repo.full_name.split('/')[1].replace(/[^A-Za-z0-9_-]/g,'_').replace(/^[^A-Za-z]+/,'project'));}}>
@@ -180,7 +197,7 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
             {!repos.length&&<Text style={[styles.muted,{paddingVertical:16}]}>Connect GitHub in Settings to import private repositories.</Text>}
           </ScrollView>
           <Pressable style={[styles.createButton,saving&&{opacity:.65}]} disabled={saving} onPress={()=>void create()}>
-            {saving?<ActivityIndicator color="#FFFFFF"/>:<Text style={styles.createText}>{repoName?'Clone project':'Create workspace'}</Text>}
+            {saving?<ActivityIndicator color="#FFFFFF"/>:<Text style={styles.createText}>{repoName==='__new__'?'Create private GitHub repo':repoName?'Clone project':'Create workspace'}</Text>}
           </Pressable>
         </View>
       </View>

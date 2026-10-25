@@ -6,6 +6,7 @@ import Markdown from 'react-native-markdown-display';
 import { ChatCodeBlock } from './ChatCodeBlock';
 import { ChatAttachmentPicker, type ChatAttachment } from './ChatAttachmentPicker';
 import { WorkspacePreview } from './WorkspacePreview';
+import { AgentActivity, type AgentEvent } from './AgentActivity';
 import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
@@ -63,7 +64,9 @@ export function ConnectedChat({
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const [attachments,setAttachments]=useState<ChatAttachment[]>([]);
   const [workspaceStatus,setWorkspaceStatus]=useState('');
-  const [agentSteps,setAgentSteps]=useState<Array<{kind:string;message:string}>>([]);
+  const [agentSteps,setAgentSteps]=useState<AgentEvent[]>([]);
+  const [lastAgentJob,setLastAgentJob]=useState<string|null>(null);
+  const [canContinue,setCanContinue]=useState(false);
   const [previewUrl,setPreviewUrl]=useState<string|null>(null);
   const [previewLoading,setPreviewLoading]=useState(false);
   const [agentBusy,setAgentBusy]=useState(false);
@@ -106,6 +109,49 @@ export function ConnectedChat({
   const output=(message:string,error:boolean)=>{
     if(mounted.current){setStatus(message);setIsError(error);}
   };
+  async function watchAgent(active:string,jobId:string,modelId:string){
+    for(let attempt=0;attempt<620;attempt++){
+      await delay(1200);
+      const update=await managedWorkspace.agentStatus(active,jobId);
+      if(mounted.current){
+        setAgentSteps(update.events);
+        const recent=update.events.filter(e=>['commentary','read','write','command','preview','error','paused'].includes(e.kind)).at(-1);
+        setWorkspaceStatus(recent?.message||'Working in '+active+'…');
+      }
+      if(update.status==='completed'){
+        if(mounted.current)setCanContinue(false);
+        return {answer:update.answer||'The project session completed. Review the saved workspace files.',
+          provider:'AWS workspace agent',model:modelId,fallbackUsed:false};
+      }
+      if(update.status==='paused'){
+        if(mounted.current)setCanContinue(true);
+        return {answer:update.answer||'The session paused. Tap Continue from saved files to resume.',
+          provider:'AWS workspace agent',model:modelId,fallbackUsed:false};
+      }
+      if(update.status==='failed'){
+        if(mounted.current)setCanContinue(true);
+        throw Error(update.error||'The coding session failed. Tap Continue from saved files to retry.');
+      }
+    }
+    throw Error('The job is still running on AWS. Check the workspace before starting another session.');
+  }
+  async function resumeCoding(){
+    if(!managedId||!lastAgentJob||thinking)return;
+    setThinking(true);setCanContinue(false);output('',false);
+    try{
+      const restarted=await managedWorkspace.continueAgent(managedId,lastAgentJob);
+      setLastAgentJob(restarted.jobId);
+      const result=await watchAgent(managedId,restarted.jobId,model);
+      if(!mounted.current)return;
+      const entry:ChatEntry={role:'assistant',content:result.answer};
+      setMessages(prev=>[...prev,entry]);
+      if(chatId)await saveMessage(chatId,entry);
+      output(result.provider+' · '+result.model,false);
+    }catch(e){
+      output(e instanceof Error?e.message:'Could not continue coding session',true);
+      setCanContinue(true);
+    }finally{if(mounted.current){setThinking(false);setAgentBusy(false);setWorkspaceStatus('');}}
+  }
   async function buildRequest(next:ChatEntry[], instruction:string, modelId:string) {
     let contextWarning='';
     // Coding tasks belong to a real Linux workspace, never text-only chat.
@@ -132,22 +178,9 @@ export function ConnectedChat({
              (attachments.filter(a=>a.text).length?'\nAttached text source:\n'+attachments.filter(a=>a.text).map(a=>a.name+'\n'+a.text?.slice(0,10000)).join('\n'):'')}
             :m);
         const started=await managedWorkspace.startAgent(active,contextual,resolvedModel);
-        for(let attempt=0;attempt<180;attempt++){
-          await delay(1200);
-          const update=await managedWorkspace.agentStatus(active,started.jobId);
-          const last=update.events.at(-1)?.message||'Coding in '+active+'…';
-          if(mounted.current){
-            setWorkspaceStatus(last);
-            setAgentSteps(update.events.filter(e=>e.kind==='tool'||e.kind==='result'||e.kind==='error')
-              .slice(-5).map(e=>({kind:e.kind,message:e.message.slice(0,150)})));
-          }
-          if(update.status==='completed')return {
-            result:{answer:update.answer||'Project files were generated in '+active+'.',provider:'AWS workspace agent',model:resolvedModel,fallbackUsed:false},
-            contextWarning:'',edits:[] as GithubProposedEdit[]
-          };
-          if(update.status==='failed')throw Error(update.error||'AWS coding job failed');
-        }
-        throw Error('The coding job is still running on AWS. Reopen the project to inspect the created files.');
+        if(mounted.current){setLastAgentJob(started.jobId);setCanContinue(false);}
+        const result=await watchAgent(active,started.jobId,resolvedModel);
+        return {result,contextWarning:'',edits:[] as GithubProposedEdit[]};
       }finally{if(mounted.current){setAgentBusy(false);setWorkspaceStatus('');}}
     }
     if(attachedProject){
@@ -217,7 +250,7 @@ export function ConnectedChat({
     if(!text||thinking||loadingHistory)return;
     const userEntry:ChatEntry={role:'user',content:text};
     const next:ChatEntry[]=[...messages,userEntry];
-    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);setAgentSteps([]);output('',false);
+    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);setAgentSteps([]);setCanContinue(false);output('',false);
     const id=await saveMessage(chatId,userEntry);
     try{
       const {result,contextWarning,edits}=await buildRequest(next,text,model);
@@ -283,18 +316,16 @@ export function ConnectedChat({
         : <View key={i} style={styles.assistantRow}>
             <Markdown style={mdStyle} rules={markdownRules}>{message.content.slice(0,55000)}</Markdown>
           </View>)}
-      {thinking&&<View style={styles.thinking}>
+      {thinking&&!agentBusy&&<View style={styles.thinking}>
         <ActivityIndicator color={PURPLE} size="small"/>
-        <Text style={styles.thinkingText}>{workspaceStatus||'Thinking…'}</Text>
+        <Text style={styles.thinkingText}>Preparing your response…</Text>
       </View>}
-      {agentSteps.length>0&&<View style={styles.agentActivity}>
-        <View style={styles.agentHeading}>{Icon('activity',15,PURPLE)}
-          <Text style={styles.agentActivityTitle}>Workspace activity</Text></View>
-        {agentSteps.map((step,i)=><View key={i} style={styles.agentActivityLine}>
-          {Icon(step.kind==='error'?'alert-circle':'check-circle',13,step.kind==='error'?'#B97567':'#7E62B9')}
-          <Text style={styles.agentActivityText} numberOfLines={2}>{step.message}</Text>
-        </View>)}
-      </View>}
+      {(agentBusy||agentSteps.length>0||canContinue)&&<AgentActivity
+        events={agentSteps} busy={agentBusy} headline={workspaceStatus}
+        continuable={canContinue&&!thinking} onContinue={()=>void resumeCoding()}/>}
+      {isError&&canContinue&&<Pressable style={styles.retryInline} onPress={()=>void resumeCoding()}>
+        {Icon('refresh-cw',15,PURPLE)}<Text style={styles.retryInlineLabel}>Retry this coding session</Text>
+      </Pressable>}
       {pendingEdits.map((edit,i)=><Pressable key={edit.path+'-'+i}
         onPress={()=>setReviewEdit(edit)} style={styles.proposalCard}>
         {Icon('file-plus',18,PURPLE)}
@@ -415,12 +446,9 @@ const styles=StyleSheet.create({
   previewAction:{flexDirection:'row',gap:7,alignItems:'center',paddingHorizontal:11,
     paddingVertical:9,backgroundColor:'#F1ECF8',borderRadius:22},
   previewLabel:{color:PURPLE,fontWeight:'600',fontSize:12},
-  agentActivity:{borderWidth:1,borderColor:'#E8E1EE',backgroundColor:'#FBF8FC',
-    borderRadius:15,padding:13,marginVertical:13,gap:10},
-  agentHeading:{flexDirection:'row',alignItems:'center',gap:8},
-  agentActivityTitle:{fontSize:12.5,fontWeight:'700',color:INK},
-  agentActivityLine:{flexDirection:'row',alignItems:'flex-start',gap:9,paddingLeft:4},
-  agentActivityText:{fontSize:11.5,color:'#777079',flex:1,lineHeight:17},
+  retryInline:{flexDirection:'row',alignItems:'center',gap:9,
+    paddingVertical:11,paddingHorizontal:12,marginVertical:5,alignSelf:'flex-start'},
+  retryInlineLabel:{color:PURPLE,fontWeight:'600',fontSize:12.5},
   historyNotice:{color:MUTED,textAlign:'center',fontSize:11.5,paddingVertical:12},
   workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
     borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},

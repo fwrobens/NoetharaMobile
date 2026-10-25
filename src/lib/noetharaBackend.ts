@@ -51,6 +51,29 @@ async function restoreGitHubToken(userId:string) {
   }catch{}
   return null;
 }
+// Expo Go cannot reliably complete custom-scheme OAuth callbacks. During
+// development, permit a user-supplied GitHub token, validated before it is
+// saved to the device's encrypted keychain. Never log or persist this value
+// in chats, source files, or app configuration.
+export async function connectGitHubWithToken(value:string): Promise<number> {
+  const session=await getSession();
+  if(!session)throw Error('Sign in to Noethara before connecting GitHub.');
+  const token=value.trim();
+  if(token.length<20||token.length>512||/\\s/.test(token))
+    throw Error('Paste a valid GitHub access token (no spaces).');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    const response=await fetch('https://api.github.com/user',{
+      headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json'},
+      signal:controller.signal
+    });
+    if(!response.ok)throw Error('GitHub rejected this token (HTTP '+response.status+'). Check the token and repository permissions.');
+  }finally{clearTimeout(timer);}
+  await persistGitHubToken(token,session.user.id);
+  try{return await verifyGitHubConnection();}
+  catch(e){await persistGitHubToken(null);throw e}
+}
 export async function getGitHubConnection() {
   const session=await getSession();
   return session ? Boolean(await restoreGitHubToken(session.user.id)) : false;
@@ -138,6 +161,8 @@ export async function signInWithProvider(provider: 'github' | 'google') {
 // Reauthorize repository access without silently replacing the user's
 // existing email/Google Supabase account with a different GitHub account.
 export async function connectGitHubForAccount(): Promise<Session> {
+  if(getOAuthReturnUrl().startsWith('exp://'))
+    throw Error('GitHub OAuth requires a development or standalone build. Expo Go cannot reliably receive this OAuth callback. Use the GitHub token option in Settings while testing with Expo Go.');
   const previous=await getSession();
   if(!previous) return signInWithGitHub();
   const {data:identities,error:identityError}=await supabase.auth.getUserIdentities();

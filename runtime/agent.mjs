@@ -649,22 +649,43 @@ async function generate(job,dir,body){
     continue;
    }
    const pkgNow=await lstat(join(dir,'package.json')).then(()=>true,()=>false);
-   if(job.dirty&&pkgNow&&verifyNudges<2){
-    verifyNudges++;
-    workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
-     {role:'user',content:'Before finishing: files changed since the last passing check. Run "npm run typecheck" and "npm run build" now (npm install first if dependencies changed), fix every error, start_preview, then give the final report.'}]);
-    event(job,'Verifying the build before finishing','progress');
-    continue;
-   }
-   if(vision.screenshots&&pkgNow&&await readFile(join(dir,'package.json'),'utf8').then(t=>/"vite"/.test(t),()=>false)&&!job.dirty&&!(job.reviews>0)&&!job._designNudged&&job.checks.build==='passed'){
-    job._designNudged=true;
-    workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
-     {role:'user',content:'Before finishing: call review_design. Fix every BROKEN item and the top 3 IMPROVE items, run "npm run build" again, then give the final report including the design score.'}]);
-    event(job,'Checking the design on phone and desktop before finishing','progress');
-    continue;
+   const changed=job.files.size>0||job.dirty||job.checks.build;
+   if(pkgNow&&changed){
+    const gate=inspectQuality(job,{frontend:frontEnd,vision:vision.screenshots});
+    if(gate.stage==='verify'&&verifyNudges<2){
+     verifyNudges++;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: verifying generated project','progress');
+     continue;
+    }
+    if(gate.stage==='preview'&&!job._previewNudged){
+     job._previewNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: checking live preview','progress');
+     continue;
+    }
+    if(gate.stage==='review'&&!job._designNudged){
+     job._designNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: requesting visual review','progress');
+     continue;
+    }
+    if(gate.stage==='refine'&&!job._refineNudged){
+     job._refineNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction+' After fixes, call review_design again and verify the changed build.'}]);
+     event(job,'Quality gate: refining design after critic feedback','progress');
+     continue;
+    }
    }
    job.plan=job.plan.map(s=>s.status==='active'?{...s,status:job.dirty?'pending':'done'}:s);
    job.answer=content||'I finished this session. The activity log lists every confirmed file change and check.';
+   if(job.dirty||job.checks.build==='failed'||job.checks.typecheck==='failed')
+    job.answer+='\n\nVerification is incomplete or failed. Do not treat this as a passing build.';
+   if(job.design?.issues)job.answer+='\n\nVisual review reported outstanding design issues; see the review events.';
    job.phase='done';
    return;
   }

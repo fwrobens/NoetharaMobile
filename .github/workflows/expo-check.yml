@@ -36,3 +36,9 @@ jobs:
         run: npm run typecheck
       - name: Verify iOS JavaScript bundle compiles
         run: npx expo export --platform ios --output-dir /tmp/noethara-ios-smoke-test --clear
+      - name: Verify deployable web assets including icon fonts
+        run: |
+          npm run build:web
+          test -s dist/fonts/Feather.ttf
+          test -s dist/fonts/MaterialCommunityIcons.ttf
+          grep -q 'noethara-icon-font-fallback' dist/index.html

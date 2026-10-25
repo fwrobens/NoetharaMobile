@@ -18,7 +18,7 @@ Run these commands on the existing NoetharaMobile EC2 machine as ubuntu:
     git pull --ff-only origin main
     npx expo install react-dom react-native-web @expo/metro-runtime
     npm run typecheck
-    npx expo export --platform web
+    npm run build:web
 
 Wrangler supports OAuth device login for headless SSH sessions. Unlike
 ordinary login, this does NOT redirect to unreachable localhost:
@@ -67,3 +67,20 @@ managed update script, then verify unauthenticated /status returns HTTP 401.
   storage. Reconnection after refresh may be required.
 - Supabase OAuth allowed redirects must include the deployed website callback
   for GitHub and Google OAuth to function in Safari.
+
+## Canonical app and secure preview hosts
+
+Use https://app.noethara.cloud for the user interface. The original
+https://noethara-mobile-web.pages.dev host redirects to that address.
+Generated apps load from https://preview.noethara.cloud, an independent
+browser origin on the same site, so HttpOnly SameSite=Strict preview cookies
+work on iPhones without exposing Noethara account data to generated code.
+Both custom hostnames are registered on the existing Pages project.
+
+Always use `npm run build:web` instead of a bare Expo export before uploading
+`dist` with Wrangler. The build copies Feather and MaterialCommunityIcons
+font assets to `dist/fonts` and adds explicit font declarations to
+`dist/index.html`; otherwise missing font assets display as empty squares.
+Run `bash infra/aws/update-managed-workspaces.sh` after pulling the latest
+runtime/server.mjs so the signed-in app on app.noethara.cloud can use the
+AWS gateway with its exact-origin CORS policy.

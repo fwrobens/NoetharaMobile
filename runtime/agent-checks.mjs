@@ -23,6 +23,6 @@ export function reconcilePlan(job){
   if(/preview/.test(title))conditions.push(job.checks.preview==='ready');
   if(/screenshot|critic|visual review/.test(title))conditions.push((job.reviews||0)>0);
   if(conditions.length&&conditions.every(Boolean)&&!job.dirty)step.status='done';
-  else if(step.status==='done'&&!conditions.every(Boolean))step.status='pending';
+  else if(step.status==='done'&&(!conditions.every(Boolean)||job.dirty))step.status='pending';
  }
 }

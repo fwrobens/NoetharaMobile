@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, statSync } from 'node:fs';
 import { startPreview } from './preview.mjs';
+import { classifyNvidiaError } from './provider-errors.mjs';
 import { visionStatus, findImagePaths, describeImages, screenshotPreview, askVision, REVIEW_PROMPT } from './vision.mjs';
 import { ENGINEERING_PROMPT } from './prompts/engineering.mjs';
 import { DESIGN_PROMPT } from './prompts/design.mjs';
@@ -521,7 +522,8 @@ async function complete(key,model,messages,tools=functions){
   }catch(e){lastError=Error('AI provider unreachable: '+String(e.message||e));await pause(1500*(attempt+1));continue}
   if(resp.ok)return await resp.json();
   const detail=(await resp.text().catch(()=>'')).slice(0,400);
-  lastError=Error('AI provider returned HTTP '+resp.status+(detail?': '+detail.slice(0,240):''));
+  const diagnosed=classifyNvidiaError(resp.status,detail);
+  lastError=Error(diagnosed.message);
   if(resp.status===400&&/max_tokens|max_completion|context length|too long/i.test(detail)&&maxTokens>4096){maxTokens=Math.floor(maxTokens/2);continue}
   if(![408,409,425,429,500,502,503,504].includes(resp.status))throw lastError;
   await pause(2000*(attempt+1)**2);

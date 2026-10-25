@@ -15,6 +15,9 @@ import { handleWorkspaceRequest, workspaceDirectory } from './workspaces.mjs';
 import { handleAgentRequest } from './agent.mjs';
 import { servePreview, handlePreviewManagement, handlePreviewUpgrade } from './preview.mjs';
 
+// Only the dedicated browser client may make cross-origin authenticated API calls.
+// Origin grants browser access, not authorization: Supabase JWT checks still apply.
+const BROWSER_ORIGINS = new Set(['https://noethara-mobile-web.pages.dev']);
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || '8789');
 const SUPABASE_URL = (process.env.NOETHARA_SUPABASE_URL || '').replace(/\/$/,'');
@@ -43,6 +46,19 @@ if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || ALLOWED_USERS.si
 const server = createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
   res.setHeader('cache-control','no-store');
+  const origin=req.headers.origin;
+  if(typeof origin==='string' && BROWSER_ORIGINS.has(origin)){
+    res.setHeader('Access-Control-Allow-Origin',origin);
+    res.setHeader('Vary','Origin');
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, x-github-token');
+    res.setHeader('Access-Control-Allow-Methods','GET, POST, PUT, OPTIONS');
+  }
+  if(req.method==='OPTIONS'&&(url.pathname==='/status'||url.pathname==='/workspaces'||url.pathname.startsWith('/workspaces/'))){
+    if(typeof origin!=='string'||!BROWSER_ORIGINS.has(origin)){
+      res.writeHead(403);res.end();return;
+    }
+    res.writeHead(204);res.end();return;
+  }
   if(url.pathname.startsWith('/preview/')){
     await servePreview(req,res,url);return;
   }

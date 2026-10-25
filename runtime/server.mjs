@@ -30,8 +30,8 @@ function isCliInstalled(name){
   return result.status===0;
 }
 // Fail closed. Never turn a valid self-signup account into full host shell access.
-if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || !ALLOWED_USERS.size) {
-  console.error('Missing NOETHARA_SUPABASE_URL, NOETHARA_SUPABASE_PUBLISHABLE_KEY, or NOETHARA_ALLOWED_USER_IDS. Refusing to start.');
+if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || ALLOWED_USERS.size!==1) {
+  console.error('Missing NOETHARA_SUPABASE_URL, NOETHARA_SUPABASE_PUBLISHABLE_KEY, or exactly one NOETHARA_ALLOWED_USER_IDS value. Refusing to start.');
   process.exit(1);
 }
 const server = createServer(async(req,res)=>{

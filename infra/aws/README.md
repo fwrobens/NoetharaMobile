@@ -13,6 +13,22 @@ Optional env (in the runtime env file, then rerun): `NOETHARA_AGENT_MODEL` (defa
 `nvidia/nemotron-3-super-120b-a12b`), `NOETHARA_AGENT_MAX_TOKENS` (default 16384).
 Existing terminal sessions keep their old size until reconnect: `tmux -L noethara kill-server` once after updating.
 
+### Second upgrade: sandbox terminal, vision, templates (run once)
+```bash
+# 1) Docker for the isolated per-project sandbox (skip if `docker info` already works)
+sudo apt-get update && sudo apt-get install -y docker.io && sudo usermod -aG docker $USER
+exit   # log out and SSH back in so the docker group applies
+# 2) Update: builds noethara/devbox image, installs Chromium for design reviews, tests, restarts PM2
+bash ~/NoetharaMobile/infra/aws/update-agent.sh
+pm2 restart noethara-terminal --update-env   # PM2 must be started from a shell that is in the docker group
+# 3) Optional: test which NVIDIA models call tools reliably
+cd ~/NoetharaMobile/runtime && NOETHARA_NVIDIA_API_KEY=... node scripts/tool-call-probe.mjs nvidia/nemotron-3-super-120b-a12b qwen/qwen3.5-122b-a10b
+```
+New env (optional): `NOETHARA_VISION_MODEL` (default `qwen/qwen3.5-122b-a10b`, any NVIDIA vision model),
+`NOETHARA_VISION=off`, `NOETHARA_SANDBOX_IMAGE` (default `noethara/devbox:latest`).
+Without Docker, shell tools are hidden from the model and npm steps still work. Without Chromium, review_design is hidden.
+Multi-user is still not safe until each user also gets separate Linux accounts/storage for the terminal; the agent sandbox is per workspace.
+
 # Managed Linux workspace via Cloudflare (October 2026)
 
 **Cloudflare setup already created:** `noethara-terminal` (Tunnel ID `0e21ab61-7710-45ed-bd2f-ff7d5889751e`), configured to proxy `terminal.noethara.cloud` to `http://127.0.0.1:8789` on the EC2 host. The tunnel was verified active and the proxied DNS record published in October 2026. Check live status in Cloudflare when troubleshooting.

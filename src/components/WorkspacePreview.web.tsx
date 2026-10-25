@@ -19,12 +19,17 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
   const {width,height}=useWindowDimensions();
   const insets=useSafeAreaInsets();
   const [device,setDevice]=useState<Device>('phone');
+  // Only a manual refresh or a genuinely new preview URL may recreate the
+  // iframe. Viewport switches must resize the existing document in place.
   const [version,setVersion]=useState(0);
+  const [activeUrl,setActiveUrl]=useState<string|null>(url);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
   const [server,setServer]=useState('');
   const [showLogs,setShowLogs]=useState(false);
-  useEffect(()=>{if(visible&&url){setLoading(true);setError('');setVersion(v=>v+1);}},[visible,url]);
+  useEffect(()=>{
+    if(visible&&url){setActiveUrl(url);setLoading(true);setError('');}
+  },[visible,url]);
   useEffect(()=>{
     if(!visible||!showLogs||!workspaceId)return;
     let live=true;
@@ -42,22 +47,24 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
   // A separate preview subdomain on the same noethara.cloud site lets Safari
   // send the HttpOnly SameSite=Strict preview cookie inside our iframe.
   const browserUrl=useMemo(()=>{
-    if(!url||typeof window==='undefined')return null;
+    if(!activeUrl||typeof window==='undefined')return null;
     try{
-      const parsed=new URL(url);
+      const parsed=new URL(activeUrl);
       if(parsed.origin!=='https://terminal.noethara.cloud')return null;
       const parts=parsed.pathname.split('/');
       if(parts[1]!=='preview'||!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(parts[2]||''))return null;
       return 'https://preview.noethara.cloud'+parsed.pathname+parsed.search;
     }catch{return null;}
-  },[url]);
+  },[activeUrl]);
   const canEmbed=Boolean(browserUrl);
   const open=()=>{if(browserUrl)void Linking.openURL(browserUrl)};
   const refresh=async()=>{
     setLoading(true);setError('');
     if(workspaceId){
-      try{await managedWorkspace.startPreview(workspaceId);}
-      catch(e){setError(String(e instanceof Error?e.message:e));}
+      try{
+        const started=await managedWorkspace.startPreview(workspaceId);
+        if(started.url)setActiveUrl(started.url);
+      }catch(e){setError(String(e instanceof Error?e.message:e));}
     }
     setVersion(v=>v+1);
   };
@@ -82,7 +89,7 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
         </Pressable>
       </View>
       <View style={styles.devices}>
-        {devices.map(d=><Pressable key={d.id} accessibilityLabel={d.label+' viewport'} onPress={()=>{setDevice(d.id);setLoading(true)}} style={[styles.device,device===d.id&&styles.selected]}>
+        {devices.map(d=><Pressable key={d.id} accessibilityLabel={d.label+' viewport'} onPress={()=>setDevice(d.id)} style={[styles.device,device===d.id&&styles.selected]}>
           <Text style={[styles.deviceLabel,device===d.id&&{color:'#FFFFFF'}]}>{d.label}</Text>
         </Pressable>)}
       </View>
@@ -90,7 +97,9 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
         {canEmbed&&browserUrl?React.createElement('div',{
           style:{width:wrappedWidth,height:wrappedHeight,overflow:'hidden',background:'#fff',margin:'0 auto',borderRadius:8},
         },React.createElement('iframe',{
-          key:browserUrl+'-'+version+'-'+device,
+          // Preserve iframe identity on viewport changes, or the entire generated
+          // website resets and flashes white on every Phone/Tablet/Desktop tap.
+          key:browserUrl+'-'+version,
           src:browserUrl,
           title:'Noethara generated app preview',
           onLoad:()=>setLoading(false),

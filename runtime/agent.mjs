@@ -385,6 +385,7 @@ const functions=[
   type:'object',properties:{template:{type:'string',enum:['react-native','react-web','node-api'],description:'Project type'}},required:['template']}}},
  {type:'function',function:{name:'run_command',description:'Run a standard npm step (install, typecheck, build, test). Always available.',parameters:{
   type:'object',properties:{command:{type:'string',enum:['npm install','npm run typecheck','npm run build','npm test']}},required:['command']}}},
+ {type:'function',function:{name:'verify_project',description:'FAST: run TypeScript typecheck, production build and a real CSS stylesheet check sequentially in the project, then update checks automatically. Use this ONCE after implementing changes, instead of separate npm calls.',parameters:{type:'object',properties:{}}}},
  {type:'function',function:{name:'start_preview',description:'Start the private live preview. Only after npm run build passes.',parameters:{type:'object',properties:{}}}},
  {type:'function',function:{name:'run_shell',description:'Run a shell command in this project\'s isolated Linux sandbox (cwd = project root; Node 22, npm, npx, Python 3, pip, git, curl, build tools). Returns exit code and output. For servers or watchers use start_process instead.',parameters:{
   type:'object',properties:{command:str('Bash command, e.g. "python3 scripts/seed.py" or "npx vitest run"'),timeout_seconds:{type:'number',description:'Max seconds (default 300, max 900)'}},required:['command']}}},
@@ -464,6 +465,7 @@ const displayAction=(name,args={})=>{
  if(name==='delete_file')return {kind:'write',phase:'writing',message:'Deleting '+path};
  if(name==='scaffold_app')return {kind:'write',phase:'writing',message:'Scaffolding '+({'react-web':'React website','node-api':'Node API'}[args.template]||'React Native app')};
  if(name==='run_command')return {kind:'command',phase:'running',message:String(args.command||'npm command').slice(0,65)};
+ if(name==='verify_project')return {kind:'command',phase:'running',message:'Verifying types, build and UI styling'};
  if(name==='start_preview')return {kind:'preview',phase:'previewing',message:'Starting live preview'};
  if(name==='update_plan')return {kind:'plan',phase:'planning',message:'Updating plan'};
  if(name==='run_shell')return {kind:'command',phase:'running',message:'$ '+String(args.command||'').slice(0,70)};
@@ -488,6 +490,26 @@ async function action(dir,name,arg,job){
   if(job.checks.build!=='passed')throw Error('Start preview only after a successful build');
   await startPreview(dir,job.workspaceId);recordCheck(job,'preview','ready');
   return 'Private live preview started; the user can open it with the Preview button in Noethara.';
+ }
+ if(name==='verify_project'){
+  const steps=[];
+  for(const [key,command] of [['typecheck','npm run typecheck'],['build','npm run build']]){
+   event(job,command,'progress');
+   try{
+    const result=await execute(dir,command,job);
+    if(key==='build'){
+     const style=await checkWebStyling(dir);
+     if(!style.ok){recordCheck(job,'style','failed');throw Error('Unstyled Vite build: '+style.reason);}
+     recordCheck(job,'style','passed');
+    }
+    recordCheck(job,key,'passed');
+    steps.push(command+': PASSED\n'+result.slice(-500));
+   }catch(e){
+    recordCheck(job,key,'failed');
+    throw Error('Verification stopped at '+command+': '+String(e.message||e).slice(0,6500));
+   }
+  }
+  return steps.join('\n');
  }
  if(name==='run_command'){
   const key=arg.command==='npm run typecheck'?'typecheck':arg.command==='npm run build'?'build':arg.command==='npm install'?'install':'test';

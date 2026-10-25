@@ -657,7 +657,11 @@ async function generate(job,dir,body){
    const pkgNow=await lstat(join(dir,'package.json')).then(()=>true,()=>false);
    const changed=job.files.size>0||job.dirty||job.checks.build;
    if(pkgNow&&changed){
-    const gate=inspectQuality(job,{frontend:frontEnd,vision:vision.screenshots});
+    // A new workspace may have become a backend API after scaffold_app;
+    // inspect its actual installed stack rather than the empty-workspace default.
+    const currentFrontEnd=await readFile(join(dir,'package.json'),'utf8')
+      .then(pkg=>/"vite"/.test(pkg),()=>frontEnd);
+    const gate=inspectQuality(job,{frontend:currentFrontEnd,vision:vision.screenshots});
     if(gate.stage==='verify'&&verifyNudges<2){
      verifyNudges++;
      workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},

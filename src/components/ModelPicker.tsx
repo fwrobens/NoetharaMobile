@@ -3,7 +3,11 @@ import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextIn
 import { Feather } from '@expo/vector-icons';
 import { getSession, getPreferredModel, noetharaAPI, savePreferredModel, type AIModel } from '../lib/noetharaBackend';
 
+// Confirmed by a live AWS NVIDIA tool-calling probe on this deployment.
+export const DEFAULT_WORKSPACE_CODING_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+
 const previewIds = [
+  DEFAULT_WORKSPACE_CODING_MODEL,
   'nvidia/nemotron-3-super-120b-a12b',
   'nvidia/nemotron-3-ultra-550b-a55b',
   'nvidia/nemotron-3-nano-30b-a3b',
@@ -40,7 +44,11 @@ export function ModelPicker({
     setLoading(true); setError('');
     try {
       const result = await noetharaAPI.models();
-      setModels(result.models);
+      // The Supabase catalog can lag behind NVIDIA's newly available hosted models.
+      // Show the known working workspace model without duplicating live results.
+      setModels(result.models.some(m=>m.id===DEFAULT_WORKSPACE_CODING_MODEL)
+        ? result.models
+        : [{id:DEFAULT_WORKSPACE_CODING_MODEL,provider:'nvidia',name:'Nemotron 3.5 Super VL · Coding'},...result.models]);
       setSource(result.catalogSource);
       setNotice(result.notice);
     } catch (err) {

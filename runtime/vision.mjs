@@ -4,7 +4,9 @@
 import { readFile, lstat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 
-// NVIDIA documents this endpoint as supporting images, text, coding and tool use.\nconst VISION_MODEL=()=>process.env.NOETHARA_VISION_MODEL||'nvidia/nemotron-3.5-super-vl-120b-a12b';
+// Default to a vision-language model for screenshot design critique.
+export const visionModelId=()=>process.env.NOETHARA_VISION_MODEL||'nvidia/nemotron-3.5-super-vl-120b-a12b';
+const VISION_MODEL=visionModelId;
 const ENDPOINT=()=>process.env.NOETHARA_VISION_ENDPOINT||'https://integrate.api.nvidia.com/v1/chat/completions';
 const MIME={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'};
 let pw=null,browserPromise=null;

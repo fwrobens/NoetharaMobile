@@ -5,9 +5,12 @@ import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { createRequire } from 'node:module';
 const wsPackage=createRequire(import.meta.url)('ws');
-const WebSocket=wsPackage.WebSocket || wsPackage;
-const WebSocketServer=wsPackage.WebSocketServer || wsPackage.Server;
-if(typeof WebSocketServer!=='function')throw Error('Incompatible ws runtime; install the dependencies in runtime/package.json.');
+// Resolve the CommonJS ws export from this runtime's dependency tree.
+const WebSocket=wsPackage.WebSocket || wsPackage.default || wsPackage;
+const WebSocketServer=wsPackage.WebSocketServer || wsPackage.Server || WebSocket.WebSocketServer || WebSocket.Server;
+if(typeof WebSocket!=='function' || typeof WebSocketServer!=='function'){
+ throw Error('Invalid ws module exports. Run npm install --prefix runtime and verify runtime/node_modules/ws.');
+}
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

@@ -16,6 +16,8 @@ import { DESIGN_PROMPT } from './prompts/design.mjs';
 import { AGENT_2_PROMPT } from './prompts/agent2.mjs';
 import { chooseAgentProvider, completionRequest } from './providers.mjs';
 import { inspectQuality, summarizeCritique } from './orchestration.mjs';
+import { checkWebStyling } from './project-health.mjs';
+import { invalidateChecks, recordCheck, reconcilePlan } from './agent-checks.mjs';
 import { discoverTools, callTool, serverReady } from './mcp/client.mjs';
 import { sandboxStatus, classifyCommand, isRemembered, rememberAllow, runShell, startProcess, processLogs, stopProcess, listProcesses } from './sandbox.mjs';
 
@@ -297,6 +299,7 @@ function setPlan(job,steps){
  if(!Array.isArray(steps)||!steps.length)throw Error('update_plan needs steps: [{"title":"...","status":"pending|active|done"}]');
  job.plan=steps.slice(0,10).map(s=>typeof s==='string'?{title:s.slice(0,90),status:'pending'}:
   {title:String(s.title||s.step||s.name||'Step').slice(0,90),status:PLAN_STATUS[String(s.status||'').toLowerCase()]||'pending'});
+ reconcilePlan(job);
  const active=job.plan.find(s=>s.status==='active');
  if(active)event(job,active.title,'plan',{status:'active'});
  return 'Plan updated. Keep it current as you work.';
@@ -382,6 +385,7 @@ const functions=[
   type:'object',properties:{template:{type:'string',enum:['react-native','react-web','node-api'],description:'Project type'}},required:['template']}}},
  {type:'function',function:{name:'run_command',description:'Run a standard npm step (install, typecheck, build, test). Always available.',parameters:{
   type:'object',properties:{command:{type:'string',enum:['npm install','npm run typecheck','npm run build','npm test']}},required:['command']}}},
+ {type:'function',function:{name:'verify_project',description:'FAST: run TypeScript typecheck, production build and a real CSS stylesheet check sequentially in the project, then update checks automatically. Use this ONCE after implementing changes, instead of separate npm calls.',parameters:{type:'object',properties:{}}}},
  {type:'function',function:{name:'start_preview',description:'Start the private live preview. Only after npm run build passes.',parameters:{type:'object',properties:{}}}},
  {type:'function',function:{name:'run_shell',description:'Run a shell command in this project\'s isolated Linux sandbox (cwd = project root; Node 22, npm, npx, Python 3, pip, git, curl, build tools). Returns exit code and output. For servers or watchers use start_process instead.',parameters:{
   type:'object',properties:{command:str('Bash command, e.g. "python3 scripts/seed.py" or "npx vitest run"'),timeout_seconds:{type:'number',description:'Max seconds (default 300, max 900)'}},required:['command']}}},
@@ -461,6 +465,7 @@ const displayAction=(name,args={})=>{
  if(name==='delete_file')return {kind:'write',phase:'writing',message:'Deleting '+path};
  if(name==='scaffold_app')return {kind:'write',phase:'writing',message:'Scaffolding '+({'react-web':'React website','node-api':'Node API'}[args.template]||'React Native app')};
  if(name==='run_command')return {kind:'command',phase:'running',message:String(args.command||'npm command').slice(0,65)};
+ if(name==='verify_project')return {kind:'command',phase:'running',message:'Verifying types, build and UI styling'};
  if(name==='start_preview')return {kind:'preview',phase:'previewing',message:'Starting live preview'};
  if(name==='update_plan')return {kind:'plan',phase:'planning',message:'Updating plan'};
  if(name==='run_shell')return {kind:'command',phase:'running',message:'$ '+String(args.command||'').slice(0,70)};
@@ -477,26 +482,62 @@ async function action(dir,name,arg,job){
  if(name==='update_plan')return setPlan(job,arg.steps);
  if(name==='list_files')return await listFiles(dir,String(arg.path||''));
  if(name==='read_file')return await readText(dir,String(arg.path||''));
- if(name==='write_file'){const r=await writeText(dir,arg.path,arg.content);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='edit_file'){const r=await editText(dir,arg.path,arg.find,arg.replace);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');job.dirty=true;return r}
+ if(name==='write_file'){const r=await writeText(dir,arg.path,arg.content);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='edit_file'){const r=await editText(dir,arg.path,arg.find,arg.replace);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));invalidateChecks(job);return r}
+ if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');invalidateChecks(job);return r}
  if(name==='start_preview'){
   if(job.checks.build!=='passed')throw Error('Start preview only after a successful build');
-  await startPreview(dir,job.workspaceId);job.checks.preview='ready';
+  await startPreview(dir,job.workspaceId);recordCheck(job,'preview','ready');
   return 'Private live preview started; the user can open it with the Preview button in Noethara.';
+ }
+ if(name==='verify_project'){
+  const steps=[];
+  for(const [key,command] of [['typecheck','npm run typecheck'],['build','npm run build']]){
+   event(job,command,'progress');
+   try{
+    const result=await execute(dir,command,job);
+    if(key==='build'){
+     const style=await checkWebStyling(dir);
+     if(!style.ok){recordCheck(job,'style','failed');throw Error('Unstyled Vite build: '+style.reason);}
+     recordCheck(job,'style','passed');
+    }
+    recordCheck(job,key,'passed');
+    steps.push(command+': PASSED\n'+result.slice(-500));
+   }catch(e){
+    recordCheck(job,key,'failed');
+    throw Error('Verification stopped at '+command+': '+String(e.message||e).slice(0,6500));
+   }
+  }
+  return steps.join('\n');
  }
  if(name==='run_command'){
   const key=arg.command==='npm run typecheck'?'typecheck':arg.command==='npm run build'?'build':arg.command==='npm install'?'install':'test';
-  try{const out=await execute(dir,arg.command,job);job.checks[key]='passed';if(key==='build'||key==='typecheck')job.dirty=false;return out}
-  catch(e){job.checks[key]='failed';throw e}
+  try{
+   const out=await execute(dir,arg.command,job);
+   if(key==='build'){
+    const style=await checkWebStyling(dir);
+    if(!style.ok){recordCheck(job,'style','failed');throw Error('Unstyled Vite build: '+style.reason);}
+    recordCheck(job,'style','passed');
+   }
+   recordCheck(job,key,'passed');
+   return out;
+  }catch(e){recordCheck(job,key,'failed');throw e}
  }
  if(name==='run_shell'){
   const command=String(arg.command||'').trim();
   await authorize(job,command);
   const r=await runShell(job.workspaceId,dir,command,{timeoutSec:arg.timeout_seconds,onOutput:t=>streamOutput(job,t)});
   const m=/^npm run (build|typecheck)$|^npm (test)\b|^npm (install|i)\b/.exec(command);
-  if(m){const key=m[1]||m[2]||'install';job.checks[key]=r.exitCode===0?'passed':'failed';if(r.exitCode===0&&(key==='build'||key==='typecheck'))job.dirty=false}
+  if(m){
+   const key=m[1]||m[2]||'install';
+   if(key==='build'&&r.exitCode===0){
+    const style=await checkWebStyling(dir);
+    if(!style.ok){recordCheck(job,'style','failed');recordCheck(job,'build','failed');throw Error('Unstyled Vite build: '+style.reason);}
+    recordCheck(job,'style','passed');
+   }
+   recordCheck(job,key,r.exitCode===0?'passed':'failed');
+  }
   if(r.exitCode!==0&&!/^(?:ls|cat|grep|rg|find|git)\b/.test(command))job.dirty=true;
   return JSON.stringify({exitCode:r.exitCode,timedOut:Boolean(r.timedOut),output:r.output});
  }
@@ -522,6 +563,7 @@ async function action(dir,name,arg,job){
   const native=Boolean(pkg.dependencies?.['react-native-web']);
   const shots=await screenshotPreview('http://127.0.0.1:'+preview.port+'/preview/'+preview.id+'/',native?['phone','tablet']:['phone','desktop']);
   job.reviews=(job.reviews||0)+1;
+  reconcilePlan(job);
   const facts=shots.map(x=>'- '+x.name+' '+x.width+'x'+x.height+': '+(x.overflowX?'HORIZONTAL OVERFLOW (content '+x.scrollWidth+'px wide)':'fits width')+
    (x.emptyBody?', PAGE RENDERS BLANK':'')+(x.errors.length?', errors: '+x.errors.join(' | '):', no runtime errors')).join('\n');
   const critique=await askVision(key,REVIEW_PROMPT+(arg.focus?'\nFocus especially on: '+String(arg.focus).slice(0,300):'')+'\n\nMeasured by the browser:\n'+facts,
@@ -537,15 +579,16 @@ async function action(dir,name,arg,job){
  throw Error('Unknown tool '+name+'. Available: '+[...TOOL_NAMES].join(', '));
 }
 async function complete(provider,messages,tools=functions){
- let maxTokens=Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||16384;
+ // Keep frequent tool-call turns responsive; explicit AWS override supports large files.
+ let maxTokens=Math.min(16384,Math.max(2048,Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||8192));
  let lastError;
- for(let attempt=0;attempt<4;attempt++){
+ for(let attempt=0;attempt<3;attempt++){
   let resp;
   try{
    resp=await fetch(provider.endpoint,{
     method:'POST',headers:{authorization:'Bearer '+provider.key,'content-type':'application/json'},
     body:JSON.stringify(completionRequest(provider,messages,tools,maxTokens)),
-    signal:AbortSignal.timeout(170000)
+    signal:AbortSignal.timeout(Math.min(170000,Math.max(25000,Number(process.env.NOETHARA_MODEL_TIMEOUT_MS)||90000)))
    });
   }catch(e){lastError=Error('AI provider unreachable: '+String(e.message||e));await pause(1500*(attempt+1));continue}
   if(resp.ok)return await resp.json();
@@ -628,7 +671,20 @@ async function generate(job,dir,body){
   const planNote=job.plan.length?'\n\n# Current plan\n'+job.plan.map(s=>'- ['+s.status+'] '+s.title).join('\n'):'';
   const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+terminalNote+mcpNote+reviewNote+imageNote+planNote+memory},...origin,...recent];
   job.phase=round===0?'planning':'thinking';
-  const payload=await complete(provider,messages,tools);
+  const aiRef='model_'+(round+1);
+  event(job,'Generating and deciding next code changes','model',{ref:aiRef,status:'running',tool:'model',round:round+1});
+  const modelStarted=Date.now();
+  let payload;
+  try{
+   payload=await complete(provider,messages,tools);
+   const elapsed=Date.now()-modelStarted;
+   job.metrics=job.metrics||{modelMs:0,toolMs:0,requests:0,commands:0};
+   job.metrics.modelMs+=elapsed;job.metrics.requests++;
+   event(job,'AI response received','result',{ref:aiRef,status:'done',tool:'model',ms:elapsed});
+  }catch(error){
+   event(job,'Model request failed','error',{ref:aiRef,status:'failed',tool:'model',ms:Date.now()-modelStarted});
+   throw error;
+  }
   const choice=payload.choices?.[0];
   const msg=choice?.message;
   if(!msg)throw Error('Model did not return a response');
@@ -691,7 +747,18 @@ async function generate(job,dir,body){
      continue;
     }
    }
-   job.plan=job.plan.map(s=>s.status==='active'?{...s,status:job.dirty?'pending':'done'}:s);
+   const currentFrontEnd=await readFile(join(dir,'package.json'),'utf8')
+     .then(pkg=>/"vite"/.test(pkg),()=>frontEnd);
+   const pending=inspectQuality(job,{frontend:currentFrontEnd,vision:vision.screenshots});
+   if(pkgNow&&changed&&pending.stage!=='ready'){
+    // A model saying "done" is not evidence. Stop rather than telling the
+    // user an unfinished build passed after the retry budget is exhausted.
+    job.status='paused';job.phase='paused';
+    job.answer='The agent paused with an unfinished '+pending.stage+' stage. Files and logs are saved. Tap Continue to finish the missing checks or fixes.';
+    event(job,'Verification incomplete: '+pending.instruction,'paused');
+    return;
+   }
+   reconcilePlan(job);
    job.answer=content||'I finished this session. The activity log lists every confirmed file change and check.';
    if(job.dirty||job.checks.build==='failed'||job.checks.typecheck==='failed')
     job.answer+='\n\nVerification is incomplete or failed. Do not treat this as a passing build.';
@@ -719,6 +786,9 @@ async function generate(job,dir,body){
     output=await action(dir,name,args,job);
     ok=true;errorsInARow=0;
     if(name!=='update_plan')event(job,described.message,'result',{ref,status:'done',tool:name,ms:Date.now()-t0,path:args.path?String(args.path).slice(0,120):undefined});
+    job.metrics=job.metrics||{modelMs:0,toolMs:0,requests:0,commands:0};
+    job.metrics.toolMs+=Date.now()-t0;
+    if(['run_command','run_shell','verify_project'].includes(name))job.metrics.commands++;
    }catch(e){
     const reason=String(e.message||e);
     output='Tool error: '+reason;
@@ -730,9 +800,9 @@ async function generate(job,dir,body){
    batch.push({role:'tool',tool_call_id:tool.id,content:String(output).slice(0,limit)});
   }
   workHistory.push(batch);
-  if(errorsInARow>=8){
+  if(errorsInARow>=5){
    job.status='paused';job.phase='paused';
-   job.answer='Repeated tool failures interrupted this session. Your files are preserved. Tap Continue to diagnose and fix the errors.';
+   job.answer='Five consecutive tool failures stopped this run to prevent an expensive loop. The files are saved. Review the error messages, then tap Continue to diagnose.';
    event(job,'Repeated errors. Continue to troubleshoot instead of looping.','paused');
    return;
   }
@@ -790,7 +860,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
   send(res,200,{jobId:job.id,status:job.status,phase:job.phase,answer:job.answer,error:job.error,events:job.events,
    plan:job.plan,files:[...job.files],checks:job.checks,round:job.round,startedAt:job.created,model:job.input?.model||null,
-   checkpoints:job.checkpoints,interrupted:Boolean(job.interrupted),pendingApproval:job.pendingApproval||null,design:job.design||null});
+   checkpoints:job.checkpoints,interrupted:Boolean(job.interrupted),pendingApproval:job.pendingApproval||null,design:job.design||null,metrics:job.metrics||null});
   return true;
  }
  if(parts.length===5&&parts[4]==='continue'&&req.method==='POST'){

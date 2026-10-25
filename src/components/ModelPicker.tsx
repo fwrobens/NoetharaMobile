@@ -20,6 +20,8 @@ const previewIds = [
   'openai/gpt-oss-120b',
   'moonshotai/kimi-k2-thinking',
   'minimaxai/minimax-m2.5',
+  'minimaxai/minimax-m3.1-flash',
+  'z-ai/glm-5.3-flash',
 ];
 const offlineCatalog: AIModel[] = [
   { id:'Beam-1.0-501B-A23B', provider:'beam', name:'Beam AI · Free tier' },
@@ -44,11 +46,16 @@ export function ModelPicker({
     setLoading(true); setError('');
     try {
       const result = await noetharaAPI.models();
-      // The Supabase catalog can lag behind NVIDIA's newly available hosted models.
-      // Show the known working workspace model without duplicating live results.
-      setModels(result.models.some(m=>m.id===DEFAULT_WORKSPACE_CODING_MODEL)
-        ? result.models
-        : [{id:DEFAULT_WORKSPACE_CODING_MODEL,provider:'nvidia',name:'Nemotron 3.5 Super VL · Coding'},...result.models]);
+      // The upstream catalog may lag behind documented free endpoints.
+      // These are candidates, not guaranteed enabled on this account: the AWS
+      // provider will expose a clear API error if entitlement is missing.
+      const recommended:AIModel[]=[
+        {id:DEFAULT_WORKSPACE_CODING_MODEL,provider:'nvidia',name:'Nemotron 3.5 Super VL · Code + vision'},
+        {id:'minimaxai/minimax-m3.1-flash',provider:'nvidia',name:'MiniMax M3.1 Flash · Fast coding (trial)'},
+        {id:'z-ai/glm-5.3-flash',provider:'nvidia',name:'GLM 5.3 Flash · Fast UI (trial)'},
+        {id:'Beam-1.0-501B-A23B',provider:'beam',name:'Reflection Beam · Coding (key required)'},
+      ];
+      setModels([...recommended,...result.models.filter(m=>!recommended.some(p=>p.id===m.id))]);
       setSource(result.catalogSource);
       setNotice(result.notice);
     } catch (err) {

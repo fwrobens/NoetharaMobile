@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseAgentProvider, completionRequest, NVIDIA_DEFAULT } from './providers.mjs';
 import { inspectQuality, summarizeCritique } from './orchestration.mjs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { checkWebStyling } from './project-health.mjs';
+import { invalidateChecks, recordCheck, reconcilePlan } from './agent-checks.mjs';
+import { visionModelId, visionStatus } from './vision.mjs';
 
 test('Beam routes only when server has a Beam key, with explicit fallback otherwise',()=>{
   const beam=chooseAgentProvider('Beam-1.0-501B-A23B',{NOETHARA_BEAMAI_API_KEY:'fake-beam'});
   assert.equal(beam.provider,'beam');
-  assert.equal(beam.model,'Beam-1.0-501B-A23B');
+  assert.equal(beam.model,'Beam-501B-A23B');
   assert.match(beam.endpoint,/reflection\.ai/);
   const fallback=chooseAgentProvider('Beam-1.0-501B-A23B',{NOETHARA_NVIDIA_API_KEY:'fake-nvidia'});
   assert.equal(fallback.provider,'nvidia');
@@ -55,4 +60,75 @@ test('premium React and React Native component kits are wired into the templates
     assert.match(text,/PremiumCard/);
     assert.match(text,/PremiumButton/);
   }
+});
+
+test('Nemotron and MiniMax reasoning are explicitly bounded to low by default',()=>{
+ const nem=chooseAgentProvider(NVIDIA_DEFAULT,{NOETHARA_NVIDIA_API_KEY:'fake'});
+ const n=completionRequest(nem,[],[],8192,{});
+ assert.equal(n.reasoning_effort,'low');
+ assert.equal(n.max_tokens,8192);
+ const fast=chooseAgentProvider('minimaxai/minimax-m3.1-flash',{NOETHARA_NVIDIA_API_KEY:'fake'});
+ const f=completionRequest(fast,[],[],8192,{});
+ assert.equal(f.reasoning_effort,'low');
+ assert.equal(f.temperature,1);
+ const beam=chooseAgentProvider('Beam-1.0-501B-A23B',{NOETHARA_BEAMAI_API_KEY:'fake'});
+ assert.equal(completionRequest(beam,[],[],4096,{}).reasoning_effort,'low');
+});
+
+test('vision model is callable, not accidentally commented out or undefined',async()=>{
+ assert.match(visionModelId(),/nemotron-3\.5-super-vl|[\w./-]+/);
+ const old=process.env.NOETHARA_NVIDIA_API_KEY;
+ const off=process.env.NOETHARA_VISION;
+ try{
+  process.env.NOETHARA_NVIDIA_API_KEY='test';
+  delete process.env.NOETHARA_VISION;
+  const status=await visionStatus();
+  assert.equal(status.images,true);
+  assert.ok(status.model);
+  assert.equal(typeof status.screenshots,'boolean');
+ }finally{
+  if(old===undefined)delete process.env.NOETHARA_NVIDIA_API_KEY;
+  else process.env.NOETHARA_NVIDIA_API_KEY=old;
+  if(off===undefined)delete process.env.NOETHARA_VISION;
+  else process.env.NOETHARA_VISION=off;
+ }
+});
+
+test('source changes reopen old passing checks and plan steps',()=>{
+ const job={dirty:false,checks:{typecheck:'passed',build:'passed',preview:'ready'},plan:[
+   {title:'Run TypeScript typecheck and production build',status:'done'},
+   {title:'Start preview',status:'done'},
+ ]};
+ invalidateChecks(job);
+ assert.equal(job.dirty,true);
+ assert.equal(job.checks.build,undefined);
+ assert.equal(job.plan[0].status,'done'); // reconciled after a tool checkpoint
+ reconcilePlan(job);
+ assert.equal(job.plan[0].status,'pending');
+ assert.equal(job.plan[1].status,'pending');
+ recordCheck(job,'typecheck','passed');
+ assert.equal(job.dirty,true);
+ recordCheck(job,'build','passed');
+ assert.equal(job.dirty,false);
+ assert.equal(job.plan[0].status,'done');
+ recordCheck(job,'preview','ready');
+ assert.equal(job.plan[1].status,'done');
+});
+
+test('web styling check fails closed for unstyled projects and accepts real CSS',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'noethara-css-'));
+ try{
+  await mkdir(join(dir,'src'),{recursive:true});
+  await writeFile(join(dir,'package.json'),JSON.stringify({dependencies:{vite:'^7.0.0',react:'^19.0.0'}}));
+  await writeFile(join(dir,'src','main.tsx'),"import App from './App';\n");
+  assert.match((await checkWebStyling(dir)).reason,/No CSS/);
+  await writeFile(join(dir,'src','main.tsx'),"import './styles.css';\nimport App from './App';");
+  await writeFile(join(dir,'src','styles.css'),'body { color: #fff; background: #09090b; font-family: system-ui; padding: 24px; } .card { border-radius: 24px; padding: 24px; }');
+  assert.equal((await checkWebStyling(dir)).ok,true);
+  await mkdir(join(dir,'dist','assets'),{recursive:true});
+  await writeFile(join(dir,'dist','assets','index.css'),'body{color:white}');
+  assert.equal((await checkWebStyling(dir)).ok,true);
+  await rm(join(dir,'dist','assets','index.css'));
+  assert.match((await checkWebStyling(dir)).reason,/no CSS asset/);
+ }finally{await rm(dir,{recursive:true,force:true});}
 });

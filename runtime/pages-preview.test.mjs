@@ -45,6 +45,12 @@ test('Pages preview proxy preserves ticket redirect and scoped cookie, but never
     assert.equal(result.headers.get('location'), '/preview/test/');
     assert.match(result.headers.get('set-cookie'), /SameSite=Strict/);
     assert.equal(result.headers.get('cache-control'), 'private, no-store');
+    // Preview project code is untrusted, even when proxied through our domain.
+    // An opaque-origin sandbox must apply to top-level and iframe previews.
+    const policy = result.headers.get('content-security-policy') || '';
+    assert.match(policy, /sandbox allow-scripts allow-forms/);
+    assert.doesNotMatch(policy, /allow-same-origin/);
+    assert.match(policy, /frame-ancestors 'self'/);
   } finally {
     globalThis.fetch = realFetch;
   }

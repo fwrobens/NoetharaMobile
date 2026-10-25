@@ -15,6 +15,15 @@
     },
     "experiments": {
       "tsconfigPaths": true
-    }
+    },
+    "plugins": [
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fbd96987-ab83-47e4-81fe-daca3f9a6b0f"
+      }
+    },
+    "owner": "robens1804"
   }
 }

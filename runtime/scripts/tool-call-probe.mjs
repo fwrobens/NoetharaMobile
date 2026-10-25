@@ -13,7 +13,7 @@ import { classifyNvidiaError } from '../provider-errors.mjs';
 
 const key=process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY;
 if(!key){console.error('Set NOETHARA_NVIDIA_API_KEY first (same value PM2 uses).');process.exit(1)}
-const models=process.argv.slice(2).length?process.argv.slice(2):[process.env.NOETHARA_AGENT_MODEL||'nvidia/nemotron-3-super-120b-a12b'];
+const models=process.argv.slice(2).length?process.argv.slice(2):[process.env.NOETHARA_AGENT_MODEL||'nvidia/nemotron-3.5-super-vl-120b-a12b'];
 const sys={role:'system',content:ENGINEERING_PROMPT+'\n\n# Workspace snapshot\n(empty workspace)'};
 const scenarios=[
  {name:'plans first',expect:['update_plan','scaffold_app'],messages:[sys,{role:'user',content:'Build a habit tracker mobile app with streaks.'}]},

@@ -10,7 +10,11 @@ That pulls `main`, installs runtime deps, runs the tests and restarts the `noeth
 What it ships: new agent prompts (`runtime/prompts/`), a verified React Native + TypeScript
 template (`runtime/templates/react-native/`), plan/edit/scaffold tools, and the terminal PTY sizing fix.
 Optional env (in the runtime env file, then rerun): `NOETHARA_AGENT_MODEL` (default
-`nvidia/nemotron-3-super-120b-a12b`), `NOETHARA_AGENT_MAX_TOKENS` (default 16384).
+`nvidia/nemotron-3.5-super-vl-120b-a12b`; verified for tool calling Oct 25, 2026), `NOETHARA_AGENT_MAX_TOKENS` (default 16384).
+The app's default Beam selection maps to the verified model for AWS workspace coding only;
+explicit NVIDIA model selections are preserved. A pre-existing `NOETHARA_AGENT_MODEL`
+environment variable still overrides the server fallback. Do not assume a probe pass
+proves end-to-end file generation until a full live workspace job succeeds.
 Existing terminal sessions keep their old size until reconnect: `tmux -L noethara kill-server` once after updating.
 
 ### Second upgrade: sandbox terminal, vision, templates (run once)

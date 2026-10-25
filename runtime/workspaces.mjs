@@ -10,7 +10,7 @@ const ROOT = resolve(process.env.NOETHARA_WORKSPACE_ROOT || join(homedir(), 'noe
 const NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,47}$/;
 const REPO = /^[a-zA-Z0-9_.-]{1,100}\/[a-zA-Z0-9_.-]{1,100}$/;
 const SAFE_SEGMENT = /^(?!\.{1,2}$)[\w.@+\- ]{1,150}$/;
-const FORBIDDEN = /^(?:\.git|\.env(?:\..*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|credentials?|secrets?|node_modules|\.next|dist|build|\.expo|\.DS_Store)$/i;
+const FORBIDDEN = /^(?:\.git|\.ssh|\.aws|\.config|\.env(?:\..*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|credentials?|secrets?|node_modules|\.next|dist|build|\.expo|\.DS_Store)$/i;
 const MAX_FILE = 128 * 1024;
 const MAX_REPOS = 12;
 const reply = (res,status,payload) => {

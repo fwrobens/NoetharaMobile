@@ -51,6 +51,12 @@ export const managedWorkspace={
     '/workspaces/'+p(id)+'/file?path='+p(path)),
   saveFile:(id:string,path:string,content:string,expectedSha256:string)=>api<{saved:boolean;path:string}>(
     '/workspaces/'+p(id)+'/file','PUT',{path,content,expectedSha256}),
+  startPreview:(id:string)=>api<{url:string;engine:string;status:string}>(
+    '/workspaces/'+p(id)+'/preview/start','POST',{}),
+  previewStatus:(id:string)=>api<{status:string;output?:string}>(
+    '/workspaces/'+p(id)+'/preview/status'),
+  stopPreview:(id:string)=>api<{stopped:boolean}>(
+    '/workspaces/'+p(id)+'/preview/stop','POST',{}),
   upload:(id:string,file:{name:string;type:string;data:string})=>
     api<{path:string;name:string;size:number;type:string}>(
       '/workspaces/'+p(id)+'/upload','POST',file),

@@ -101,6 +101,30 @@ server.on('upgrade',(req,socket,head)=>{
  if(path!=='/'&&path!=='/terminal'){socket.destroy();return;}
  wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
 });
+// Run a fixed binary with argument arrays (never a client-built shell string).
+const runQuiet=(cmd,args)=>new Promise(done=>{
+  const child=spawn(cmd,args,{env:{...process.env,PATH:EXEC_PATH},stdio:['ignore','pipe','ignore']});
+  let out='';child.stdout.on('data',d=>{out+=d;});
+  child.on('error',()=>done(''));child.on('close',()=>done(out));
+});
+// Let the tmux window follow the most recent client size instead of a fixed
+// manual size, and hide the host status bar so the phone sees only the agent UI.
+async function tmuxConfigure(name){
+  const t=args=>runQuiet('tmux',['-L','noethara',...args]);
+  await t(['set-option','-g','status','off']);
+  await t(['set-option','-g','window-size','latest']);
+  await t(['set-window-option','-g','window-size','latest']);
+  await t(['set-window-option','-g','aggressive-resize','on']);
+  if(name)await t(['set-window-option','-t',name,'-u','window-size']);
+}
+// Resize the client PTYs; the kernel sends SIGWINCH and tmux reflows the CLI.
+async function resizeSession(name,cols,rows){
+  if(!name)return;
+  const ttys=(await runQuiet('tmux',['-L','noethara','list-clients','-t',name,'-F','#{client_tty}']))
+    .split('\n').map(v=>v.trim()).filter(v=>/^\/dev\/pts\/\d+$/.test(v));
+  for(const tty of ttys)await runQuiet('stty',['-F',tty,'cols',String(cols),'rows',String(rows)]);
+  for(const tty of ttys)await runQuiet('tmux',['-L','noethara','refresh-client','-t',tty]);
+}
 let clients = 0;
 async function authenticate(accessToken) {
   if (typeof accessToken !== 'string' || accessToken.length<20 || accessToken.length>4096) return null;
@@ -153,7 +177,10 @@ wss.on('connection',(socket,req)=>{
       tmuxName='noethara-'+cli+(msg.workspace?'-'+msg.workspace:'');
       const cols=Number.isInteger(msg.cols)&&msg.cols>=28&&msg.cols<=180?msg.cols:55;
       const rows=Number.isInteger(msg.rows)&&msg.rows>=10&&msg.rows<=100?msg.rows:28;
-      const command='tmux -L noethara -u new-session -A -s '+tmuxName+
+      // `script` allocates a PTY at a default size. Size the PTY itself to the phone
+      // first; otherwise tmux draws its window inside a larger/smaller client and
+      // fills the gap with dots (the "terminal doesn't fit" bug).
+      const command='stty cols '+cols+' rows '+rows+' 2>/dev/null; exec tmux -L noethara -u new-session -A -s '+tmuxName+
         ' -x '+cols+' -y '+rows+' '+cli;
       terminal=spawn('script',['-q','-f','-c',command,'/dev/null'],{
         cwd:activeDir,env:{...process.env,PATH:EXEC_PATH,TERM:'xterm-256color',COLORTERM:'truecolor'},
@@ -161,10 +188,7 @@ wss.on('connection',(socket,req)=>{
       });
       // Hide the tmux host status bar, so the phone sees the agent UI only.
       const disableStatus=()=>{
-        const child=spawn('tmux',['-L','noethara','set-option','-g','status','off'],{
-          stdio:'ignore',env:{...process.env,PATH:EXEC_PATH}
-        });
-        child.on('error',()=>{});
+        void tmuxConfigure(tmuxName).then(()=>resizeSession(tmuxName,cols,rows));
       };
       const statusTimer=setTimeout(disableStatus,500);
       terminal.stdout.on('data',chunk=>reply({type:'output',data:chunk.toString('utf8').slice(0,24000)}));
@@ -182,11 +206,7 @@ wss.on('connection',(socket,req)=>{
       msg.cols>=20 && msg.cols<=240 && msg.rows>=8 && msg.rows<=120 && tmuxName){
       // CLI full-screen layouts need the real device viewport dimensions.
       // Use argument arrays, never a client-controlled shell command.
-      const size=spawn('tmux',['-L','noethara','resize-window',
-        '-t',tmuxName,'-x',String(msg.cols),'-y',String(msg.rows)],{
-        env:{...process.env,PATH:EXEC_PATH},stdio:'ignore'
-      });
-      size.on('error',()=>{});
+      void resizeSession(tmuxName,msg.cols,msg.rows);
     }else if(msg?.type==='ping'){reply({type:'pong'});}
   });
   socket.on('close',()=>{

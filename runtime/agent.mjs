@@ -157,7 +157,8 @@ export function approvalTimeoutMs(env=process.env){
 function requestApproval(job,command,reason){
  return new Promise(resolve=>{
   const ref=randomUUID().slice(0,8),since=Date.now(),phase=job.phase;
-  job.pendingApproval={ref,command:String(command).slice(0,600),reason:reason||'Runs inside this project\'s isolated sandbox.'};
+  const ttl=approvalTimeoutMs();
+  job.pendingApproval={ref,command:String(command).slice(0,600),reason:reason||'Runs inside this project\'s isolated sandbox.',expiresAt:since+ttl};
   job.phase='awaiting_approval';
   event(job,'Waiting for your approval: '+String(command).slice(0,90),'progress');
   saveJobNow(job);
@@ -169,7 +170,7 @@ function requestApproval(job,command,reason){
    event(job,outcome+': '+String(command).slice(0,90),allow?'result':'progress');
    resolve({allow,reason});
   };
-  const timer=setTimeout(()=>done(false,'timeout'),approvalTimeoutMs());
+  const timer=setTimeout(()=>done(false,'timeout'),ttl);
   const watcher=setInterval(()=>{if(job.cancelled)done(false,'cancel')},800);
   timer.unref?.();watcher.unref?.();
   job._approve=allow=>done(Boolean(allow));
@@ -550,6 +551,9 @@ async function action(dir,name,arg,job){
  }
  if(name==='run_shell'){
   const command=String(arg.command||'').trim();
+  // Routine npm checks never need a second Docker shell or permission prompt.
+  if(['npm install','npm test','npm run typecheck','npm run build'].includes(command))
+    return await action(dir,'run_command',{command},job);
   await guardManagedPreview(dir,command);
   await authorize(job,command);
   const r=await runShell(job.workspaceId,dir,command,{timeoutSec:arg.timeout_seconds,onOutput:t=>streamOutput(job,t)});

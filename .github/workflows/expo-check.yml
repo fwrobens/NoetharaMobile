@@ -29,9 +29,17 @@ jobs:
       - name: Install isolated gateway dependencies
         run: npm install --prefix runtime --no-audit --no-fund
       - name: Managed workspace API tests
-        run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs runtime/pages-preview.test.mjs runtime/preview-hmr.test.mjs
+        run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs runtime/agent-v2.test.mjs runtime/mcp/client.test.mjs runtime/pages-preview.test.mjs runtime/preview-hmr.test.mjs
       - name: Runtime syntax checks
-        run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs && node --check runtime/agent.mjs && node --check runtime/preview.mjs
+        run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs && node --check runtime/agent.mjs && node --check runtime/preview.mjs && node --check runtime/mcp/client.mjs && node --check runtime/providers.mjs && node --check runtime/orchestration.mjs
+      - name: Verify generated React web premium template
+        run: |
+          npm install --prefix runtime/templates/react-web --no-audit --no-fund
+          npm run build --prefix runtime/templates/react-web
+      - name: Verify generated React Native premium template
+        run: |
+          npm install --prefix runtime/templates/react-native --no-audit --no-fund
+          npm run build --prefix runtime/templates/react-native
       - name: TypeScript check
         run: npm run typecheck
       - name: Verify iOS JavaScript bundle compiles

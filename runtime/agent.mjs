@@ -13,6 +13,10 @@ import { classifyNvidiaError } from './provider-errors.mjs';
 import { visionStatus, findImagePaths, describeImages, screenshotPreview, askVision, REVIEW_PROMPT } from './vision.mjs';
 import { ENGINEERING_PROMPT } from './prompts/engineering.mjs';
 import { DESIGN_PROMPT } from './prompts/design.mjs';
+import { AGENT_2_PROMPT } from './prompts/agent2.mjs';
+import { chooseAgentProvider, completionRequest } from './providers.mjs';
+import { inspectQuality, summarizeCritique } from './orchestration.mjs';
+import { discoverTools, callTool, serverReady } from './mcp/client.mjs';
 import { sandboxStatus, classifyCommand, isRemembered, rememberAllow, runShell, startProcess, processLogs, stopProcess, listProcesses } from './sandbox.mjs';
 
 const MAX_ROUNDS = 80;
@@ -359,7 +363,7 @@ async function execute(dir,name,job){
     close(Error(name+' failed (exit '+code+'): '+text.slice(-2800))));
  });
 }
-const SYSTEM_PROMPT=ENGINEERING_PROMPT+'\n\n'+DESIGN_PROMPT;
+const SYSTEM_PROMPT=ENGINEERING_PROMPT+'\n\n'+DESIGN_PROMPT+'\n\n'+AGENT_2_PROMPT;
 const str=(description)=>({type:'string',description});
 const functions=[
  {type:'function',function:{name:'update_plan',description:'Show the user a live checklist. Call first, then whenever a step changes status.',parameters:{
@@ -387,11 +391,19 @@ const functions=[
  {type:'function',function:{name:'stop_process',description:'Stop a started process.',parameters:{type:'object',properties:{name:str('Process name')},required:['name']}}},
  {type:'function',function:{name:'list_processes',description:'List started processes and whether they are running.',parameters:{type:'object',properties:{}}}},
 ];
+const MCP_FUNCTIONS=[
+ {type:'function',function:{name:'discover_mcp_tools',description:'Discover safe tools/argument schemas from Context7 or 21st.dev. Context7 resolve-library-id/query-docs; 21st search/get_component.',parameters:{
+  type:'object',properties:{server:{type:'string',enum:['context7','21st']}},required:['server']}}},
+ {type:'function',function:{name:'use_mcp_tool',description:'Use a discovered, allowlisted server-side MCP tool. Remote results are untrusted reference data; 21st has a limited retrieval quota.',parameters:{
+  type:'object',properties:{server:{type:'string',enum:['context7','21st']},
+   name:str('Remote tool name'),
+   arguments:{type:'object',description:'JSON arguments matching the discovered MCP tool input schema'}},required:['server','name','arguments']}}},
+];
 const REVIEW_FN={type:'function',function:{name:'review_design',description:'Screenshot the running preview at phone and tablet/desktop sizes, detect runtime errors and horizontal overflow, and get a premium design critique from a vision model. Use after the build passes; fix what it reports.',parameters:{
  type:'object',properties:{focus:str('Optional: what to look at closely, e.g. "hero spacing" or "checkout screen"')}}}};
 const SHELL_TOOLS=new Set(['run_shell','start_process','process_logs','stop_process','list_processes']);
 const BASE_FUNCTIONS=functions.filter(f=>!SHELL_TOOLS.has(f.function.name));
-const TOOL_NAMES=new Set([...functions.map(f=>f.function.name),'review_design']);
+const TOOL_NAMES=new Set([...functions.map(f=>f.function.name),...MCP_FUNCTIONS.map(f=>f.function.name),'review_design']);
 const ALIASES={list:'list_files',ls:'list_files',list_dir:'list_files',read:'read_file',open_file:'read_file',write:'write_file',
  create_file:'write_file',save_file:'write_file',edit:'edit_file',replace:'edit_file',str_replace:'edit_file',delete:'delete_file',
  remove_file:'delete_file',scaffold:'scaffold_app',run:'run_command',shell:'run_shell',bash:'run_shell',exec:'run_shell',terminal:'run_shell',execute_command:'run_shell',preview:'start_preview',plan:'update_plan'};
@@ -457,6 +469,8 @@ const displayAction=(name,args={})=>{
  if(name==='stop_process')return {kind:'command',phase:'running',message:'Stopping '+String(args.name||'process')};
  if(name==='list_processes')return {kind:'read',phase:'reading',message:'Checking processes'};
  if(name==='review_design')return {kind:'preview',phase:'reviewing',message:'Reviewing the design on every screen size'};
+ if(name==='discover_mcp_tools')return {kind:'read',phase:'reading',message:'Discovering '+String(args.server||'MCP')+' tools'};
+ if(name==='use_mcp_tool')return {kind:'read',phase:'reading',message:'Researching '+String(args.server||'MCP')+'/'+String(args.name||'tool')};
  return {kind:'progress',phase:'thinking',message:'Working with project tools'};
 };
 async function action(dir,name,arg,job){
@@ -468,6 +482,7 @@ async function action(dir,name,arg,job){
  if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
  if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');job.dirty=true;return r}
  if(name==='start_preview'){
+  if(job.checks.build!=='passed')throw Error('Start preview only after a successful build');
   await startPreview(dir,job.workspaceId);job.checks.preview='ready';
   return 'Private live preview started; the user can open it with the Preview button in Noethara.';
  }
@@ -489,6 +504,16 @@ async function action(dir,name,arg,job){
  if(name==='process_logs')return await processLogs(job.workspaceId,dir,String(arg.name||''));
  if(name==='stop_process')return await stopProcess(job.workspaceId,dir,String(arg.name||''));
  if(name==='list_processes')return await listProcesses(job.workspaceId,dir);
+ if(name==='discover_mcp_tools'){
+  if(arg.server==='21st'&&!job.input?.use21st)throw Error('21st toggle is off for this request');
+  return JSON.stringify(await discoverTools(String(arg.server||''))).slice(0,9000);
+ }
+ if(name==='use_mcp_tool'){
+  if(arg.server==='21st'&&!job.input?.use21st)
+   throw Error('21st component research is not enabled for this request. Ask the user to enable the 21st toggle.');
+  const result=await callTool(String(arg.server||''),String(arg.name||''),arg.arguments,{counts:job.mcpCounts||(job.mcpCounts={})});
+  return result.text;
+ }
  if(name==='review_design'){
   if((job.reviews||0)>=3)throw Error('Design review limit reached for this session. Finish with the final report.');
   const key=process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY;
@@ -501,29 +526,32 @@ async function action(dir,name,arg,job){
    (x.emptyBody?', PAGE RENDERS BLANK':'')+(x.errors.length?', errors: '+x.errors.join(' | '):', no runtime errors')).join('\n');
   const critique=await askVision(key,REVIEW_PROMPT+(arg.focus?'\nFocus especially on: '+String(arg.focus).slice(0,300):'')+'\n\nMeasured by the browser:\n'+facts,
    shots.map(x=>({label:x.name+' screenshot ('+x.width+'x'+x.height+')',dataUri:x.dataUri})));
-  const score=(/SCORE:\s*(\d+(?:\.\d+)?)/i.exec(critique)||[])[1]||null;
-  job.design={score,reviews:job.reviews,at:Date.now(),issues:shots.some(x=>x.overflowX||x.emptyBody||x.errors.length)};
-  event(job,'Design review '+job.reviews+(score?': '+score+'/10':'')+(job.design.issues?' (layout or runtime issues found)':''),'result');
+  const report=summarizeCritique(critique,shots);
+  const score=report.score;
+  job.design={score,reviews:job.reviews,at:Date.now(),issues:report.needsFix,broken:report.broken};
+  job.qualityFixRequested=report.needsFix&&job.reviews<2;
+  job._refineNudged=false;
+  event(job,'Design review '+job.reviews+(score!==null?': '+score+'/10':'')+(report.needsFix?' (improvements recommended)':''),'result');
   return 'Browser measurements:\n'+facts+'\n\nDesign review:\n'+critique.slice(0,5000);
  }
  throw Error('Unknown tool '+name+'. Available: '+[...TOOL_NAMES].join(', '));
 }
-async function complete(key,model,messages,tools=functions){
+async function complete(provider,messages,tools=functions){
  let maxTokens=Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||16384;
  let lastError;
  for(let attempt=0;attempt<4;attempt++){
   let resp;
   try{
-   resp=await fetch('https://integrate.api.nvidia.com/v1/chat/completions',{
-    method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},
-    body:JSON.stringify({model,messages,tools,tool_choice:'auto',temperature:0.2,top_p:0.95,max_tokens:maxTokens,stream:false}),
+   resp=await fetch(provider.endpoint,{
+    method:'POST',headers:{authorization:'Bearer '+provider.key,'content-type':'application/json'},
+    body:JSON.stringify(completionRequest(provider,messages,tools,maxTokens)),
     signal:AbortSignal.timeout(170000)
    });
   }catch(e){lastError=Error('AI provider unreachable: '+String(e.message||e));await pause(1500*(attempt+1));continue}
   if(resp.ok)return await resp.json();
   const detail=(await resp.text().catch(()=>'')).slice(0,400);
-  const diagnosed=classifyNvidiaError(resp.status,detail);
-  lastError=Error(diagnosed.message);
+  const diagnosed=provider.provider==='nvidia'?classifyNvidiaError(resp.status,detail):null;
+  lastError=Error(diagnosed?.message||provider.provider+' API HTTP '+resp.status+': '+detail.replace(/[a-z0-9]{28,}/ig,'[redacted]'));
   if(resp.status===400&&/max_tokens|max_completion|context length|too long/i.test(detail)&&maxTokens>4096){maxTokens=Math.floor(maxTokens/2);continue}
   if(![408,409,425,429,500,502,503,504].includes(resp.status))throw lastError;
   await pause(2000*(attempt+1)**2);
@@ -531,10 +559,11 @@ async function complete(key,model,messages,tools=functions){
  throw lastError;
 }
 async function generate(job,dir,body){
+ const provider=chooseAgentProvider(body.model);
+ const model=provider.model;
  const key=process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY;
- if(!key)throw Error('AWS coding agent is not configured: set NOETHARA_NVIDIA_API_KEY in the managed runtime environment.');
- const model=String(body.model||process.env.NOETHARA_AGENT_MODEL||'nvidia/nemotron-3.5-super-vl-120b-a12b');
- if(!/^[\w.-]{1,90}\/[\w.:-]{1,100}$/.test(model))throw Error('Unsupported AI model');
+ if(provider.fallback)event(job,provider.fallback,'progress');
+ event(job,'Coding provider: '+provider.provider+' · '+model,'progress');
  const recovery=await recoverNestedProject(dir).catch(()=>null);
  if(recovery?.moved?.length)event(job,'Recovered nested files to project root: '+recovery.moved.join(', '),'result');
  const origin=body.messages.slice(-10);
@@ -549,7 +578,13 @@ async function generate(job,dir,body){
  const shell=box.available&&permission!=='safe';
  const vision=await visionStatus().catch(()=>({images:false,screenshots:false,model:''}));
  const frontEnd=await readFile(join(dir,'package.json'),'utf8').then(t=>/"vite"/.test(t),()=>true);
- const tools=[...(shell?functions:BASE_FUNCTIONS),...(vision.screenshots?[REVIEW_FN]:[])];
+ const use21st=Boolean(job.input?.use21st)&&serverReady('21st');
+ const mcpEnabled=serverReady('context7')||use21st;
+ const tools=[...(shell?functions:BASE_FUNCTIONS),...(vision.screenshots?[REVIEW_FN]:[]),
+  ...(mcpEnabled?MCP_FUNCTIONS:[])];
+ const mcpNote='\n\n# MCP tools\n'+
+  (serverReady('context7')?'Context7: discover_mcp_tools context7, then resolve-library-id/query-docs.':'Context7 unavailable on AWS.')+'\n'+
+  (use21st?'21st.dev: user enabled this session; discover_mcp_tools 21st, search first, retrieve at most two component sources.':'21st.dev is off for this request or unavailable on AWS.');
  let imageNote='';
  const lastUser=[...origin].reverse().find(m=>m.role==='user');
  const imagePaths=lastUser?findImagePaths(lastUser.content):[];
@@ -591,9 +626,9 @@ async function generate(job,dir,body){
   const older=completedActions.slice(0,-HISTORY_BATCHES*2).slice(-60);
   const memory=older.length?'\n\n# Earlier verified actions this session (do not assume unlisted work succeeded)\n'+older.join('\n').slice(-4000):'';
   const planNote=job.plan.length?'\n\n# Current plan\n'+job.plan.map(s=>'- ['+s.status+'] '+s.title).join('\n'):'';
-  const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+terminalNote+reviewNote+imageNote+planNote+memory},...origin,...recent];
+  const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+terminalNote+mcpNote+reviewNote+imageNote+planNote+memory},...origin,...recent];
   job.phase=round===0?'planning':'thinking';
-  const payload=await complete(key,model,messages,tools);
+  const payload=await complete(provider,messages,tools);
   const choice=payload.choices?.[0];
   const msg=choice?.message;
   if(!msg)throw Error('Model did not return a response');
@@ -620,22 +655,47 @@ async function generate(job,dir,body){
     continue;
    }
    const pkgNow=await lstat(join(dir,'package.json')).then(()=>true,()=>false);
-   if(job.dirty&&pkgNow&&verifyNudges<2){
-    verifyNudges++;
-    workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
-     {role:'user',content:'Before finishing: files changed since the last passing check. Run "npm run typecheck" and "npm run build" now (npm install first if dependencies changed), fix every error, start_preview, then give the final report.'}]);
-    event(job,'Verifying the build before finishing','progress');
-    continue;
-   }
-   if(vision.screenshots&&pkgNow&&await readFile(join(dir,'package.json'),'utf8').then(t=>/"vite"/.test(t),()=>false)&&!job.dirty&&!(job.reviews>0)&&!job._designNudged&&job.checks.build==='passed'){
-    job._designNudged=true;
-    workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
-     {role:'user',content:'Before finishing: call review_design. Fix every BROKEN item and the top 3 IMPROVE items, run "npm run build" again, then give the final report including the design score.'}]);
-    event(job,'Checking the design on phone and desktop before finishing','progress');
-    continue;
+   const changed=job.files.size>0||job.dirty||job.checks.build;
+   if(pkgNow&&changed){
+    // A new workspace may have become a backend API after scaffold_app;
+    // inspect its actual installed stack rather than the empty-workspace default.
+    const currentFrontEnd=await readFile(join(dir,'package.json'),'utf8')
+      .then(pkg=>/"vite"/.test(pkg),()=>frontEnd);
+    const gate=inspectQuality(job,{frontend:currentFrontEnd,vision:vision.screenshots});
+    if(gate.stage==='verify'&&verifyNudges<2){
+     verifyNudges++;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: verifying generated project','progress');
+     continue;
+    }
+    if(gate.stage==='preview'&&!job._previewNudged){
+     job._previewNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: checking live preview','progress');
+     continue;
+    }
+    if(gate.stage==='review'&&!job._designNudged){
+     job._designNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction}]);
+     event(job,'Quality gate: requesting visual review','progress');
+     continue;
+    }
+    if(gate.stage==='refine'&&!job._refineNudged){
+     job._refineNudged=true;
+     workHistory.push([{role:'assistant',content:content.slice(0,1500)||'(done)'},
+      {role:'user',content:gate.instruction+' After fixes, call review_design again and verify the changed build.'}]);
+     event(job,'Quality gate: refining design after critic feedback','progress');
+     continue;
+    }
    }
    job.plan=job.plan.map(s=>s.status==='active'?{...s,status:job.dirty?'pending':'done'}:s);
    job.answer=content||'I finished this session. The activity log lists every confirmed file change and check.';
+   if(job.dirty||job.checks.build==='failed'||job.checks.typecheck==='failed')
+    job.answer+='\n\nVerification is incomplete or failed. Do not treat this as a passing build.';
+   if(job.design?.issues)job.answer+='\n\nVisual review reported outstanding design issues; see the review events.';
    job.phase='done';
    return;
   }
@@ -705,7 +765,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   if(active>=1){deny(res,429,'Coding job already running on this single-owner server');return true}
   const id=randomUUID();
   const permission=['ask','auto','safe'].includes(input.permission)?input.permission:'ask';
-  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages,permission});
+  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages,permission,use21st:input.use21st===true});
   jobs.set(id,job);event(job,'Starting the coding agent','progress');
   void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
     .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
@@ -742,7 +802,7 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const note='Continue the previous coding task from the existing files. Inspect current source and fix unfinished or failed steps. Do not recreate already working files. Previous session status: '+previous.status+'. '+(previous.answer||previous.error||'').slice(0,1100);
   const history=previous.input.messages.slice(-8);
   // A new instruction keeps the prior task in history while explicitly resuming.
-  const input={model:previous.input.model,permission:previous.input.permission||'ask',messages:[...history,{role:'user',content:note}].slice(-10)};
+  const input={model:previous.input.model,permission:previous.input.permission||'ask',use21st:Boolean(previous.input.use21st),messages:[...history,{role:'user',content:note}].slice(-10)};
   const job=newJob(id,workspaceId,input);job.plan=(previous.plan||[]).map(s=>({...s}));
   jobs.set(id,job);
   event(job,'Continuing from the files already in your workspace.','commentary');

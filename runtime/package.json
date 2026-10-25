@@ -4,10 +4,12 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test agent.test.mjs agent-v2.test.mjs mcp/client.test.mjs workspaces.test.mjs pages-preview.test.mjs preview-hmr.test.mjs"
   },
   "dependencies": {
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "@modelcontextprotocol/client": "^2.0.0"
   },
   "optionalDependencies": {
     "playwright": "^1.48.0"

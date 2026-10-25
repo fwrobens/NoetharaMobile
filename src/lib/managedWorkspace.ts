@@ -65,8 +65,8 @@ export const managedWorkspace={
   upload:(id:string,file:{name:string;type:string;data:string})=>
     api<{path:string;name:string;size:number;type:string}>(
       '/workspaces/'+p(id)+'/upload','POST',file),
-  startAgent:(id:string,messages:Array<{role:'user'|'assistant';content:string}>,model:string,permission:'ask'|'auto'|'safe'='ask')=>
-    api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model,permission}),
+  startAgent:(id:string,messages:Array<{role:'user'|'assistant';content:string}>,model:string,permission:'ask'|'auto'|'safe'='ask',use21st=false)=>
+    api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model,permission,use21st}),
   agentStatus:(id:string,jobId:string)=>
     api<{jobId:string;status:'running'|'completed'|'failed'|'paused';answer:string;error:string;
       events:Array<{id:number;kind:string;message:string;at:number;ref?:string;

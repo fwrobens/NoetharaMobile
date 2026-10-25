@@ -1,6 +1,7 @@
 // Authenticated NoetharaMobile provider gateway and read-only GitHub tools.
 // Provider credentials are exclusively Supabase Edge Function environment secrets.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { runRepositoryAgent, applyApprovedGitHubFile } from './agent.ts';
 
 const replyHeaders = {
   'content-type': 'application/json; charset=utf-8',
@@ -158,6 +159,48 @@ Deno.serve(async request => {
         name: f.name, path: f.path, type: f.type, size: f.size,
       })) });
       return json({ kind: 'file', name: data.name, path: data.path, content: decodeGithubFile(data) });
+    }
+    if (path.endsWith('/agent') && request.method === 'POST') {
+      const token=request.headers.get('x-github-token')||'';
+      if(!token)return fail('Connect GitHub to use project tools.',401);
+      const raw=await request.text();
+      if(raw.length>85000)return fail('Agent request too large',413);
+      let body:any;
+      try{body=JSON.parse(raw);}catch{return fail('Invalid JSON');}
+      if(!validRepo(body?.repo||'')||!Array.isArray(body?.messages)||body.messages.length<1||body.messages.length>20)
+        return fail('Select a repository and provide messages');
+      const branch=typeof body.branch==='string'&&/^[\w./-]{1,130}$/.test(body.branch)&&!body.branch.includes('..')
+        ?body.branch:'main';
+      const selected=typeof body.model==='string'?body.model:BEAM_ID;
+      const models=await listNvidiaModels();
+      if(selected!==BEAM_ID&&!models.models.includes(selected))return fail('Unsupported model');
+      const isBeam=selected===BEAM_ID;
+      const key=isBeam?beamKey():nvidiaKey();
+      if(!key)return fail('Selected provider is not configured',503);
+      const chat=body.messages.map((m:any)=>{
+        if(!['user','assistant'].includes(m.role)||typeof m.content!=='string'||m.content.length>10000)
+          throw Error('Invalid chat message');
+        return {role:m.role,content:m.content};
+      });
+      const result=await runRepositoryAgent({
+        token,repo:body.repo,branch,messages:chat,
+        provider:isBeam?'beam':'nvidia',model:selected,apiKey:key,url:isBeam?BEAM_URL:NVIDIA_URL,
+      });
+      return json({...result,fallbackUsed:false});
+    }
+    if(path.endsWith('/github/apply') && request.method==='POST'){
+      const token=request.headers.get('x-github-token')||'';
+      if(!token)return fail('Connect GitHub first',401);
+      const raw=await request.text();
+      if(raw.length>75000)return fail('Change too large',413);
+      let body:any;
+      try{body=JSON.parse(raw);}catch{return fail('Invalid JSON');}
+      if(body.approved!==true)return fail('Explicit user approval is required',403);
+      const result=await applyApprovedGitHubFile({
+        token,repo:body.repo,branch:body.branch,path:body.path,
+        content:body.content,sha:body.sha??null,message:body.message
+      });
+      return json(result);
     }
     if (path.endsWith('/chat') && request.method === 'POST') {
       const raw = await request.text();

@@ -35,6 +35,10 @@ function name(value){
   if(typeof value!=='string'||!NAME.test(value)) throw Error('Workspace name must use letters, numbers, hyphens or underscores.');
   return value;
 }
+export async function workspaceDirectory(value){
+  await root();
+  return workspace(value);
+}
 async function workspace(value){
   const n=name(value);
   const dir=join(ROOT,n);

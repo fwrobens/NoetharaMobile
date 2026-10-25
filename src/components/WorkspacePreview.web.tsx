@@ -46,7 +46,8 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
     try{
       const parsed=new URL(url);
       if(parsed.origin!=='https://terminal.noethara.cloud')return null;
-      if(!/^\\/preview\\/[A-Za-z][A-Za-z0-9_-]{0,47}\\//.test(parsed.pathname))return null;
+      const parts=parsed.pathname.split('/');
+      if(parts[1]!=='preview'||!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(parts[2]||''))return null;
       return window.location.origin+parsed.pathname+parsed.search;
     }catch{return null;}
   },[url]);

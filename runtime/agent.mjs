@@ -763,4 +763,4 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
  }
  deny(res,404,'Unknown coding job endpoint');return true;
 }
-export { generate as _generate, newJob as _newJob, authorize as _authorize, scaffold as _scaffold };
+export { generate as _generate, newJob as _newJob, authorize as _authorize, scaffold as _scaffold, functions as _functions };

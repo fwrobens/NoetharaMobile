@@ -25,7 +25,7 @@ const Glyph = ({name,size=20,color=COLORS.text}:{
   name: React.ComponentProps<typeof Feather>['name'];size?:number;color?:string;
 }) => <Feather name={name} size={size} color={color}/>;
 
-export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
+export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()=>void;workspaceId?:string}) {
   const [status,setStatus] = useState<Connection>('offline');
   const [error,setError] = useState('');
   const [hasOutput,setHasOutput] = useState(false);
@@ -110,7 +110,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
       socket.onopen=()=>{
         clearTimeout(handshakeTimer);
         if(wsRef.current===socket){
-          socket.send(JSON.stringify({type:'auth',token:session.access_token,agent}));
+          socket.send(JSON.stringify({type:'auth',token:session.access_token,agent,workspace:workspaceId,...dimensions.current}));
         }
       };
       socket.onmessage=event=>{
@@ -163,7 +163,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
       const socket=wsRef.current;wsRef.current=null;
       if(socket){socket.onclose=null;socket.close();}
     };
-  },[agent]);
+  },[agent,workspaceId]);
   const connected=status==='online';
   const sendText=()=>{
     if(!connected||!input.trim()||wsRef.current?.readyState!==WebSocket.OPEN)return;
@@ -182,7 +182,7 @@ export function RemoteTerminal({agent,onBack}:{agent:Agent;onBack:()=>void}) {
       </Pressable>
       <View style={styles.titleBlock}>
         <Text style={styles.title}>{LABELS[agent]}</Text>
-        <Text style={styles.subtitle}>Noethara managed workspace</Text>
+        <Text numberOfLines={1} style={styles.subtitle}>{workspaceId?'Workspace · '+workspaceId:'Noethara managed workspace'}</Text>
       </View>
       <View style={styles.connectionStatus}>
         <View style={[styles.statusDot,{backgroundColor:connected?COLORS.success:status==='connecting'?'#CE9C4D':'#999599'}]}/>
@@ -282,10 +282,10 @@ const styles=StyleSheet.create({
     borderRadius:11,backgroundColor:'#F3F1ED',borderWidth:1,borderColor:'#E7E3DD'},
   statusDot:{width:7,height:7,borderRadius:5},
   statusLabel:{color:'#777379',fontSize:11,fontWeight:'600'},
-  terminalFrame:{flex:1,marginHorizontal:11,marginBottom:10,borderWidth:1,borderColor:'#E6E2DB',
+  terminalFrame:{flex:1,marginHorizontal:8,marginBottom:8,borderWidth:1,borderColor:'#E6E2DB',
     borderRadius:19,overflow:'hidden',backgroundColor:COLORS.terminal,
     shadowColor:'#7E736F',shadowOpacity:0.045,shadowOffset:{width:0,height:5},shadowRadius:16,elevation:1},
-  terminalChrome:{height:47,backgroundColor:'#F7F5F1',borderBottomWidth:1,borderColor:'#EAE5DF',
+  terminalChrome:{height:42,backgroundColor:'#F7F5F1',borderBottomWidth:1,borderColor:'#EAE5DF',
     flexDirection:'row',alignItems:'center',gap:11,paddingHorizontal:14},
   chromeDots:{flexDirection:'row',gap:6},
   chromeDot:{width:8,height:8,borderRadius:6},
@@ -318,9 +318,9 @@ const styles=StyleSheet.create({
     flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:14,backgroundColor:'#F9F7F4'},
   footerIndicator:{height:6,width:6,borderRadius:4,backgroundColor:'#B4AFB5'},
   footerLabel:{color:'#918C92',fontSize:10,fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
-  commandBar:{paddingHorizontal:12,paddingBottom:8,gap:10},
+  commandBar:{paddingHorizontal:8,paddingBottom:7,gap:8},
   keyStrip:{flexDirection:'row',gap:7,paddingBottom:1,paddingHorizontal:1},
-  key:{height:34,minWidth:45,borderRadius:9,backgroundColor:'#FFFFFF',
+  key:{height:36,minWidth:45,borderRadius:9,backgroundColor:'#FFFFFF',
     borderWidth:1,borderColor:'#E6E1DB',
     justifyContent:'center',alignItems:'center',paddingHorizontal:11},
   disabledKey:{opacity:0.55},

@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   supabase, getSession, signInWithGitHub, signInWithGoogle, signInWithEmail, signUpWithEmail,
   logout, getOAuthReturnUrl, AUTH_CALLBACK_URL, noetharaAPI,
-  connectGitHubForAccount, verifyGitHubConnection,
+  connectGitHubForAccount, connectGitHubWithToken, verifyGitHubConnection,
   type Repo, type GithubEntry,
 } from '../lib/noetharaBackend';
 import { ModelPicker, useModelPreference } from './ModelPicker';
@@ -53,6 +53,7 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
   const [message,setMessage]=useState('');
   const [status,setStatus]=useState<{beam:boolean;nvidia:boolean;fallback:boolean}|null>(null);
   const [githubStatus,setGithubStatus]=useState('Not checked');
+  const [githubTokenInput,setGithubTokenInput]=useState('');
   useEffect(()=>{
     if(section!=='github'||!signedIn)return;
     let active=true;
@@ -164,8 +165,22 @@ export function IntegrationsSettings({ onBack, openRepos }: { onBack:()=>void;op
               <Action title="Browse GitHub repositories" onPress={openRepos}/>
             </View>
           </Section>
+          <Section label="Connect from Expo Go · development">
+            <View style={styles.fieldWrap}>
+              <Text style={styles.fieldText}>Expo Go does not reliably support the custom OAuth callback. For testing, connect with a fine-grained GitHub token limited to the repositories you choose. It is validated with GitHub and stored in your device's secure storage.</Text>
+              <Input value={githubTokenInput} onChange={setGithubTokenInput}
+                placeholder="Paste GitHub access token" secure/>
+              <Action title="Connect with token" dark disabled={loading||githubTokenInput.trim().length<20}
+                onPress={()=>run(async()=>{
+                  const count=await connectGitHubWithToken(githubTokenInput);
+                  setGithubTokenInput('');
+                  setGithubStatus('Connected · '+count+' repositories available');
+                })}/>
+              <Text style={styles.fieldText}>Use repository Contents permissions for reading or editing. Never paste tokens into chat messages. The normal GitHub OAuth button is intended for development or standalone builds.</Text>
+            </View>
+          </Section>
           <Section label="Permissions"><View style={styles.fieldWrap}>
-            <Text style={styles.fieldText}>GitHub requests currently support listing repositories and reading files for AI context. No commands, commits or clone operations are executed.</Text>
+            <Text style={styles.fieldText}>GitHub browsing is read-only. The managed workspace supports cloning and publishing repository changes with explicit approval. Your coding agent executes only the approved workspace npm commands.</Text>
           </View></Section>
         </>}
         {loading&&<ActivityIndicator color={colors.purple} style={{marginTop:6}}/>}

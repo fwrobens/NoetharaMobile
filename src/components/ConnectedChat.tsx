@@ -448,7 +448,7 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
-    <WorkspacePreview url={previewUrl} visible={Boolean(previewUrl)} onClose={()=>setPreviewUrl(null)}/>
+    <WorkspacePreview url={previewUrl} visible={Boolean(previewUrl)} onClose={()=>setPreviewUrl(null)} workspaceId={managedId}/>
     <ChatAttachmentPicker visible={attachmentOpen} onClose={()=>setAttachmentOpen(false)}
       onPicked={asset=>setAttachments(current=>current.length<4?[...current,asset]:current)}
       onError={message=>Alert.alert('Attachment failed',message)}/>

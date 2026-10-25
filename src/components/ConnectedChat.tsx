@@ -228,9 +228,10 @@ export function ConnectedChat({
       if(mounted.current)setManagedId(active);
     }
     if(active){
-      // Beam powers ordinary chat; workspace coding uses the verified NVIDIA
-      // tool-calling endpoint when the user has not selected an explicit model.
-      const resolvedModel=modelId==='Beam-1.0-501B-A23B'?DEFAULT_WORKSPACE_CODING_MODEL:modelId;
+      // Send explicit user model choice to the AWS coding agent. The backend
+      // chooses the Beam adapter when its private key is configured, otherwise
+      // reports its tested NVIDIA fallback. Never silently remap in the UI.
+      const resolvedModel=modelId;
       if(mounted.current){setAgentBusy(true);setWorkspaceStatus('Preparing '+active+' on AWS…');}
       try{
         const attachedNames:string[]=[];

@@ -127,3 +127,38 @@ test('jobs persist to disk and checkpoints restore workspace files',async()=>{
   assert.equal(job.checkpoints.length,2);
  }finally{await rm(root,{recursive:true,force:true})}
 });
+
+test('sandbox command classifier blocks destructive commands and allows read-only ones',async()=>{
+ const { classifyCommand }=await import('./sandbox.mjs');
+ assert.equal(classifyCommand('ls -la src').decision,'allow');
+ assert.equal(classifyCommand('git status').decision,'allow');
+ assert.equal(classifyCommand('npm run build').decision,'allow');
+ assert.equal(classifyCommand('python3 seed.py').decision,'ask');
+ assert.equal(classifyCommand('ls; rm -rf node_modules').decision,'ask');
+ assert.equal(classifyCommand('rm -rf /').decision,'deny');
+ assert.equal(classifyCommand(':(){ :|:& };:').decision,'deny');
+ assert.equal(classifyCommand('curl --unix-socket /var/run/docker.sock x').decision,'deny');
+});
+
+test('permission modes: safe refuses, ask waits for approval, auto runs',async()=>{
+ process.env.NOETHARA_STATE_DIR=process.env.NOETHARA_STATE_DIR||await mkdtemp(join(tmpdir(),'noethara-state-'));
+ const { _authorize, _newJob }=await import('./agent.mjs');
+ const safe=_newJob('11111111-1111-1111-1111-111111111111','ws',{messages:[],permission:'safe'});safe.events=[];
+ await assert.rejects(_authorize(safe,'python3 x.py'),/Safe mode/);
+ const ask=_newJob('22222222-2222-2222-2222-222222222222','ws',{messages:[],permission:'ask'});
+ assert.equal(await _authorize(ask,'ls src'),true);
+ const pending=_authorize(ask,'pip install requests');
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(ask.pendingApproval.command,'pip install requests');
+ assert.equal(ask.phase,'awaiting_approval');
+ ask._approve(true);
+ assert.equal(await pending,true);
+ assert.equal(ask.pendingApproval,null);
+ const denied=_authorize(ask,'pip install flask');
+ await new Promise(r=>setTimeout(r,20));
+ ask._approve(false);
+ await assert.rejects(denied,/denied/);
+ const auto=_newJob('33333333-3333-3333-3333-333333333333','ws',{messages:[],permission:'auto'});
+ assert.equal(await _authorize(auto,'pip install flask'),true);
+ await assert.rejects(_authorize(auto,'rm -rf /'),/Blocked/);
+});

@@ -11,6 +11,7 @@ import { readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, statSy
 import { startPreview } from './preview.mjs';
 import { ENGINEERING_PROMPT } from './prompts/engineering.mjs';
 import { DESIGN_PROMPT } from './prompts/design.mjs';
+import { sandboxStatus, classifyCommand, isRemembered, rememberAllow, runShell, startProcess, processLogs, stopProcess, listProcesses } from './sandbox.mjs';
 
 const MAX_ROUNDS = 80;
 const RUN_BUDGET_MS = 14 * 60 * 1000;
@@ -24,7 +25,7 @@ const STATE_DIR = process.env.NOETHARA_STATE_DIR || join(homedir(),'.noethara');
 const JOB_DIR = join(STATE_DIR,'jobs');
 const CHECKPOINT_DIR = join(STATE_DIR,'checkpoints');
 try{mkdirSync(JOB_DIR,{recursive:true,mode:0o700});mkdirSync(CHECKPOINT_DIR,{recursive:true,mode:0o700})}catch{}
-const serialize=job=>JSON.stringify({...job,files:[...job.files],_saveTimer:undefined});
+const serialize=job=>JSON.stringify({...job,files:[...job.files],_saveTimer:undefined,_approve:undefined});
 function saveJobNow(job){
  clearTimeout(job._saveTimer);job._saveTimer=undefined;
  try{writeFileSync(join(JOB_DIR,job.id+'.json'),serialize(job),{mode:0o600})}catch{}
@@ -35,7 +36,7 @@ function scheduleSave(job){
  job._saveTimer.unref?.();
 }
 function hydrate(raw){
- const job={...raw,files:new Set(raw.files||[]),plan:raw.plan||[],checks:raw.checks||{},checkpoints:raw.checkpoints||[],events:raw.events||[]};
+ const job={...raw,files:new Set(raw.files||[]),plan:raw.plan||[],checks:raw.checks||{},checkpoints:raw.checkpoints||[],events:raw.events||[],pendingApproval:null};
  if(job.status==='running'){
   job.status='paused';job.phase='paused';job.interrupted=true;
   job.answer='The server restarted while this session was running. Your files and checkpoints are saved. Tap Continue to resume.';
@@ -121,6 +122,44 @@ function event(job,message,kind='tool',extra={}){
  job.events.push({id:job.events.length?job.events[job.events.length-1].id+1:1,kind,message:String(message).slice(0,1800),at:Date.now(),...extra});
  if(job.events.length>300)job.events.shift();
  scheduleSave(job);
+}
+// Live command output updates the running action in place (no event spam).
+function streamOutput(job,text){
+ const now=Date.now();
+ if(job._streamAt&&now-job._streamAt<500)return;
+ job._streamAt=now;
+ const live=[...job.events].reverse().find(e=>e.ref&&e.ref===job._liveRef&&e.status==='running');
+ if(live){live.output=String(text).slice(-700);live.at=now;scheduleSave(job)}
+}
+// Ask the user before a sandbox command runs (permission mode 'ask').
+function requestApproval(job,command,reason){
+ return new Promise(resolve=>{
+  const ref=randomUUID().slice(0,8),since=Date.now(),phase=job.phase;
+  job.pendingApproval={ref,command:String(command).slice(0,600),reason:reason||'Runs inside this project\'s isolated sandbox.'};
+  job.phase='awaiting_approval';
+  event(job,'Waiting for your approval: '+String(command).slice(0,90),'progress');
+  saveJobNow(job);
+  const done=allow=>{
+   clearTimeout(timer);clearInterval(watcher);
+   job._approve=undefined;job.pendingApproval=null;job.phase=phase;
+   job._waitedMs=(job._waitedMs||0)+(Date.now()-since);
+   event(job,(allow?'Approved: ':'Denied: ')+String(command).slice(0,90),allow?'result':'progress');
+   resolve(allow);
+  };
+  const timer=setTimeout(()=>done(false),10*60*1000);
+  const watcher=setInterval(()=>{if(job.cancelled)done(false)},800);
+  timer.unref?.();watcher.unref?.();
+  job._approve=done;
+ });
+}
+async function authorize(job,command){
+ const mode=job.input?.permission||'ask';
+ if(mode==='safe')throw Error('Shell commands are disabled in Safe mode. Use run_command for npm install, typecheck, build and test.');
+ const verdict=classifyCommand(command);
+ if(verdict.decision==='deny')throw Error(verdict.reason);
+ if(mode==='auto'||verdict.decision==='allow'||isRemembered(STATE_DIR,job.workspaceId,command))return true;
+ if(!await requestApproval(job,command))throw Error('The user denied: '+command+'. Use a different approach, or explain in your final answer why it is needed.');
+ return true;
 }
 // Recursive project tree (bounded) so the model sees the structure in one call.
 export async function projectTree(dir,start='',maxEntries=260){
@@ -304,7 +343,7 @@ async function execute(dir,name,job){
   const timer=setTimeout(()=>{child.kill('SIGKILL');close(Error(name+' exceeded '+Math.round(limit/1000)+'s limit'))},limit);
   const output=buf=>{
    text=(text+buf.toString('utf8')).slice(-10000);
-   event(job,text.slice(-450),'command');
+   streamOutput(job,text);
   };
   child.stdout.on('data',output);child.stderr.on('data',output);
   child.once('error',e=>close(e));
@@ -329,14 +368,23 @@ const functions=[
  {type:'function',function:{name:'delete_file',description:'Delete a file in the project.',parameters:{
   type:'object',properties:{path:str('Path relative to project root')},required:['path']}}},
  {type:'function',function:{name:'scaffold_app',description:'Create a verified React Native + TypeScript project (react-native-web + Vite preview) in an EMPTY workspace. Use before writing app code when package.json is missing.',parameters:{type:'object',properties:{}}}},
- {type:'function',function:{name:'run_command',description:'Run an approved npm command. No other shell commands exist.',parameters:{
+ {type:'function',function:{name:'run_command',description:'Run a standard npm step (install, typecheck, build, test). Always available.',parameters:{
   type:'object',properties:{command:{type:'string',enum:['npm install','npm run typecheck','npm run build','npm test']}},required:['command']}}},
  {type:'function',function:{name:'start_preview',description:'Start the private live preview. Only after npm run build passes.',parameters:{type:'object',properties:{}}}},
+ {type:'function',function:{name:'run_shell',description:'Run a shell command in this project\'s isolated Linux sandbox (cwd = project root; Node 22, npm, npx, Python 3, pip, git, curl, build tools). Returns exit code and output. For servers or watchers use start_process instead.',parameters:{
+  type:'object',properties:{command:str('Bash command, e.g. "python3 scripts/seed.py" or "npx vitest run"'),timeout_seconds:{type:'number',description:'Max seconds (default 300, max 900)'}},required:['command']}}},
+ {type:'function',function:{name:'start_process',description:'Start a long-running process (API server, worker, watcher) in the sandbox under a short name. Returns its first output.',parameters:{
+  type:'object',properties:{name:str('Short id, e.g. "api"'),command:str('Command, e.g. "npm run dev:api"')},required:['name','command']}}},
+ {type:'function',function:{name:'process_logs',description:'Read the latest output of a started process.',parameters:{type:'object',properties:{name:str('Process name')},required:['name']}}},
+ {type:'function',function:{name:'stop_process',description:'Stop a started process.',parameters:{type:'object',properties:{name:str('Process name')},required:['name']}}},
+ {type:'function',function:{name:'list_processes',description:'List started processes and whether they are running.',parameters:{type:'object',properties:{}}}},
 ];
+const SHELL_TOOLS=new Set(['run_shell','start_process','process_logs','stop_process','list_processes']);
+const BASE_FUNCTIONS=functions.filter(f=>!SHELL_TOOLS.has(f.function.name));
 const TOOL_NAMES=new Set(functions.map(f=>f.function.name));
 const ALIASES={list:'list_files',ls:'list_files',list_dir:'list_files',read:'read_file',open_file:'read_file',write:'write_file',
  create_file:'write_file',save_file:'write_file',edit:'edit_file',replace:'edit_file',str_replace:'edit_file',delete:'delete_file',
- remove_file:'delete_file',scaffold:'scaffold_app',run:'run_command',shell:'run_command',preview:'start_preview',plan:'update_plan'};
+ remove_file:'delete_file',scaffold:'scaffold_app',run:'run_command',shell:'run_shell',bash:'run_shell',exec:'run_shell',terminal:'run_shell',execute_command:'run_shell',preview:'start_preview',plan:'update_plan'};
 const pick=(...v)=>v.find(x=>x!==undefined&&x!==null);
 function normalizeArgs(args){
  const a={...(args&&typeof args==='object'?args:{})};
@@ -393,6 +441,11 @@ const displayAction=(name,args={})=>{
  if(name==='run_command')return {kind:'command',phase:'running',message:String(args.command||'npm command').slice(0,65)};
  if(name==='start_preview')return {kind:'preview',phase:'previewing',message:'Starting live preview'};
  if(name==='update_plan')return {kind:'plan',phase:'planning',message:'Updating plan'};
+ if(name==='run_shell')return {kind:'command',phase:'running',message:'$ '+String(args.command||'').slice(0,70)};
+ if(name==='start_process')return {kind:'command',phase:'running',message:'Starting '+String(args.name||'process')};
+ if(name==='process_logs')return {kind:'read',phase:'reading',message:'Reading '+String(args.name||'process')+' logs'};
+ if(name==='stop_process')return {kind:'command',phase:'running',message:'Stopping '+String(args.name||'process')};
+ if(name==='list_processes')return {kind:'read',phase:'reading',message:'Checking processes'};
  return {kind:'progress',phase:'thinking',message:'Working with project tools'};
 };
 async function action(dir,name,arg,job){
@@ -412,9 +465,22 @@ async function action(dir,name,arg,job){
   try{const out=await execute(dir,arg.command,job);job.checks[key]='passed';if(key==='build'||key==='typecheck')job.dirty=false;return out}
   catch(e){job.checks[key]='failed';throw e}
  }
+ if(name==='run_shell'){
+  const command=String(arg.command||'').trim();
+  await authorize(job,command);
+  const r=await runShell(job.workspaceId,dir,command,{timeoutSec:arg.timeout_seconds,onOutput:t=>streamOutput(job,t)});
+  const m=/^npm run (build|typecheck)$|^npm (test)\b|^npm (install|i)\b/.exec(command);
+  if(m){const key=m[1]||m[2]||'install';job.checks[key]=r.exitCode===0?'passed':'failed';if(r.exitCode===0&&(key==='build'||key==='typecheck'))job.dirty=false}
+  if(r.exitCode!==0&&!/^(?:ls|cat|grep|rg|find|git)\b/.test(command))job.dirty=true;
+  return JSON.stringify({exitCode:r.exitCode,timedOut:Boolean(r.timedOut),output:r.output});
+ }
+ if(name==='start_process'){const command=String(arg.command||'').trim();await authorize(job,command);return await startProcess(job.workspaceId,dir,String(arg.name||''),command)}
+ if(name==='process_logs')return await processLogs(job.workspaceId,dir,String(arg.name||''));
+ if(name==='stop_process')return await stopProcess(job.workspaceId,dir,String(arg.name||''));
+ if(name==='list_processes')return await listProcesses(job.workspaceId,dir);
  throw Error('Unknown tool '+name+'. Available: '+[...TOOL_NAMES].join(', '));
 }
-async function complete(key,model,messages){
+async function complete(key,model,messages,tools=functions){
  let maxTokens=Number(process.env.NOETHARA_AGENT_MAX_TOKENS)||16384;
  let lastError;
  for(let attempt=0;attempt<4;attempt++){
@@ -422,7 +488,7 @@ async function complete(key,model,messages){
   try{
    resp=await fetch('https://integrate.api.nvidia.com/v1/chat/completions',{
     method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},
-    body:JSON.stringify({model,messages,tools:functions,tool_choice:'auto',temperature:0.2,top_p:0.95,max_tokens:maxTokens,stream:false}),
+    body:JSON.stringify({model,messages,tools,tool_choice:'auto',temperature:0.2,top_p:0.95,max_tokens:maxTokens,stream:false}),
     signal:AbortSignal.timeout(170000)
    });
   }catch(e){lastError=Error('AI provider unreachable: '+String(e.message||e));await pause(1500*(attempt+1));continue}
@@ -449,6 +515,15 @@ async function generate(job,dir,body){
  const workspaceNote='\n\n# Workspace snapshot at session start ('+basename(dir)+')\n'+
   (snapshot.length?snapshot.join('\n'):'(empty workspace: call update_plan, then scaffold_app, then npm install)')+
   (hasPackage?'':'\nNo package.json yet.');
+ const permission=job.input?.permission||'ask';
+ const box=await sandboxStatus().catch(()=>({available:false,reason:'unknown'}));
+ const shell=box.available&&permission!=='safe';
+ const tools=shell?functions:BASE_FUNCTIONS;
+ const terminalNote=shell
+  ?'\n\n# Terminal\nrun_shell and start_process run in an isolated Linux sandbox at the project root (Node 22, npm, Python 3, pip, git, build tools). Permission mode: '+permission+
+   (permission==='ask'?' — commands that change things wait for the user to approve, so batch work into few purposeful commands.':'.')+
+   ' Use start_process for servers and watchers, then process_logs to confirm they are healthy. Never print secrets.'
+  :'\n\n# Terminal\nNo shell in this session ('+(permission==='safe'?'Safe mode':box.reason)+'). Use run_command for npm install, typecheck, build and test.';
  const workHistory=[];
  const completedActions=[];
  const started=Date.now();
@@ -458,7 +533,7 @@ async function generate(job,dir,body){
  for(let round=0;round<MAX_ROUNDS;round++){
   job.round=round+1;
   if(job.cancelled)throw Error('Generation cancelled');
-  if(Date.now()-started>RUN_BUDGET_MS){
+  if(Date.now()-started-(job._waitedMs||0)>RUN_BUDGET_MS){
    job.status='paused';job.phase='paused';
    job.answer='The session reached its time budget. Saved files remain in the workspace. Tap Continue to pick up from the existing files.';
    event(job,'Session paused safely. Continue without resending the prompt.','paused');
@@ -468,9 +543,9 @@ async function generate(job,dir,body){
   const older=completedActions.slice(0,-HISTORY_BATCHES*2).slice(-60);
   const memory=older.length?'\n\n# Earlier verified actions this session (do not assume unlisted work succeeded)\n'+older.join('\n').slice(-4000):'';
   const planNote=job.plan.length?'\n\n# Current plan\n'+job.plan.map(s=>'- ['+s.status+'] '+s.title).join('\n'):'';
-  const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+planNote+memory},...origin,...recent];
+  const messages=[{role:'system',content:SYSTEM_PROMPT+workspaceNote+terminalNote+planNote+memory},...origin,...recent];
   job.phase=round===0?'planning':'thinking';
-  const payload=await complete(key,model,messages);
+  const payload=await complete(key,model,messages,tools);
   const choice=payload.choices?.[0];
   const msg=choice?.message;
   if(!msg)throw Error('Model did not return a response');
@@ -525,6 +600,7 @@ async function generate(job,dir,body){
    const t0=Date.now();
    try{
     if(parseError)throw parseError;
+    job._liveRef=ref;
     output=await action(dir,name,args,job);
     ok=true;errorsInARow=0;
     if(name!=='update_plan')event(job,described.message,'result',{ref,status:'done',tool:name,ms:Date.now()-t0,path:args.path?String(args.path).slice(0,120):undefined});
@@ -573,7 +649,8 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const active=[...jobs.values()].filter(j=>j.status==='running').length;
   if(active>=1){deny(res,429,'Coding job already running on this single-owner server');return true}
   const id=randomUUID();
-  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages});
+  const permission=['ask','auto','safe'].includes(input.permission)?input.permission:'ask';
+  const job=newJob(id,workspaceId,{model:input.model,messages:input.messages,permission});
   jobs.set(id,job);event(job,'Starting the coding agent','progress');
   void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
     .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
@@ -610,13 +687,21 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const note='Continue the previous coding task from the existing files. Inspect current source and fix unfinished or failed steps. Do not recreate already working files. Previous session status: '+previous.status+'. '+(previous.answer||previous.error||'').slice(0,1100);
   const history=previous.input.messages.slice(-8);
   // A new instruction keeps the prior task in history while explicitly resuming.
-  const input={model:previous.input.model,messages:[...history,{role:'user',content:note}].slice(-10)};
+  const input={model:previous.input.model,permission:previous.input.permission||'ask',messages:[...history,{role:'user',content:note}].slice(-10)};
   const job=newJob(id,workspaceId,input);job.plan=(previous.plan||[]).map(s=>({...s}));
   jobs.set(id,job);
   event(job,'Continuing from the files already in your workspace.','commentary');
   void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
    .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
   send(res,202,{jobId:id,status:'running'});return true;
+ }
+ if(parts.length===5&&parts[4]==='approve'&&req.method==='POST'){
+  const job=getJob(parts[3]);
+  if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
+  const body=await new Promise((ok,no)=>{let raw='';req.on('data',c=>{raw+=c;if(raw.length>2000)req.destroy()});req.on('end',()=>{try{ok(JSON.parse(raw||'{}'))}catch{no(Error('Invalid JSON'))}});req.on('error',no)});
+  if(!job.pendingApproval||!job._approve){deny(res,409,'Nothing is waiting for approval');return true}
+  if(body.allow&&body.always)rememberAllow(STATE_DIR,workspaceId,job.pendingApproval.command);
+  job._approve(Boolean(body.allow));send(res,200,{ok:true});return true;
  }
  if(parts.length===5&&parts[4]==='cancel'&&req.method==='POST'){
   const job=getJob(parts[3]);
@@ -625,4 +710,4 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
  }
  deny(res,404,'Unknown coding job endpoint');return true;
 }
-export { generate as _generate, newJob as _newJob };
+export { generate as _generate, newJob as _newJob, authorize as _authorize };

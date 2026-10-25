@@ -3,7 +3,7 @@ import { Animated, Easing, LayoutAnimation, Pressable, StyleSheet, Text, View } 
 import { Feather } from '@expo/vector-icons';
 
 export type AgentEvent={id:number;kind:string;message:string;at:number;ref?:string;
- status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number};
+ status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number;output?:string};
 export type AgentPlanStep={title:string;status:'pending'|'active'|'done'};
 export type AgentChecks=Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;
 export type AgentApproval={ref:string;command:string;reason:string};
@@ -120,12 +120,17 @@ export function ThinkingIndicator({label='Thinking'}:{label?:string}){
  const enter=useEntrance();
  return <Animated.View style={[styles.thinking,enter]}><Orb state="busy"/><Text style={styles.thinkingText}>{label}</Text><Dots/></Animated.View>;
 }
+// eslint-disable-next-line no-control-regex
+const lastLines=(t:string)=>t.replace(/\u001b\[[0-9;]*[A-Za-z]/g,'').split('\n').map(l=>l.trim()).filter(Boolean).slice(-2).join('\n');
 function LiveAction({event}:{event:AgentEvent}){
  const enter=useEntrance(0,6);
  const icon=TOOL_ICONS[event.tool||'']||KIND_ICONS[event.kind]||'activity';
  return <Animated.View style={[styles.live,enter]}>
   <View style={styles.liveIcon}><Feather name={icon} size={14} color={C.accent}/></View>
-  <Text style={styles.liveText} numberOfLines={1}>{event.message}</Text>
+  <View style={{flex:1,gap:3}}>
+   <Text style={styles.liveText} numberOfLines={1}>{event.message}</Text>
+   {!!event.output&&<Text style={styles.liveOut} numberOfLines={2}>{lastLines(event.output)}</Text>}
+  </View>
   <Dots/>
  </Animated.View>;
 }
@@ -325,6 +330,7 @@ const styles=StyleSheet.create({
  continue:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:10,paddingHorizontal:14,borderRadius:14,backgroundColor:C.accent},
  continueText:{fontSize:13,fontWeight:'700',color:'#FFF'},
  thinking:{flexDirection:'row',alignItems:'center',gap:10,paddingVertical:10},
+ liveOut:{fontFamily:'Menlo',fontSize:10.5,color:C.faint,lineHeight:14},
  actions:{flexDirection:'row',flexWrap:'wrap',gap:8,alignItems:'center'},
  undo:{flexDirection:'row',alignItems:'center',gap:7,paddingVertical:10,paddingHorizontal:13,borderRadius:14,borderWidth:1,borderColor:C.line,backgroundColor:'#FBFAFC'},
  undoText:{fontSize:13,fontWeight:'600',color:C.body},

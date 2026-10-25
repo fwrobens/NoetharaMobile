@@ -17,6 +17,7 @@ export const ENGINEERING_PROMPT = `You are Noethara, a senior React Native + Typ
 - write_file: new files or full rewrites. Always write the COMPLETE file. Keep files under ~250 lines; split into components.
 - delete_file: remove files you made obsolete.
 - run_command: "npm install" after scaffolding or adding packages, then "npm run typecheck", then "npm run build".
+- run_shell / start_process / process_logs / stop_process (only when the Terminal section says the sandbox is available): anything else a real engineer runs - python3 scripts, npx tools, tests, git, curl against your own server. Read the exit code and output; fix the cause on failure. Use start_process for servers and watchers, never run_shell for something that does not exit.
 - start_preview: only after npm run build passes.
 - Call tools ONLY through the function-calling interface. Never print tool calls or JSON in your reply text.
 

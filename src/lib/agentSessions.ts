@@ -28,3 +28,12 @@ export async function clearAgentSession(chatId:string|null|undefined){
 }
 export class DetachedError extends Error{constructor(){super('detached');this.name='DetachedError';}}
 export const isDetached=(e:unknown)=>e instanceof DetachedError;
+
+export type PermissionMode='ask'|'auto'|'safe';
+const PERMISSION_KEY='noethara.agentPermission';
+export async function getPermissionMode():Promise<PermissionMode>{
+  try{const v=await AsyncStorage.getItem(PERMISSION_KEY);return v==='auto'||v==='safe'?v:'ask';}catch{return 'ask';}
+}
+export async function setPermissionMode(mode:PermissionMode){
+  try{await AsyncStorage.setItem(PERMISSION_KEY,mode);}catch{}
+}

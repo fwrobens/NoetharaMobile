@@ -8,6 +8,16 @@ echo '==> Pulling latest main'
 git pull --ff-only origin main
 echo '==> Installing runtime dependencies'
 npm install --prefix runtime --no-audit --no-fund
+
+# Isolated per-project sandbox for agent shell commands (Docker).
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  echo "Building sandbox image noethara/devbox:latest (first time takes a few minutes)"
+  docker build -q -t noethara/devbox:latest -f infra/aws/devbox.Dockerfile infra/aws || echo "WARN: sandbox image build failed; agent falls back to npm-only commands"
+else
+  echo "NOTE: Docker is not usable by $USER, so agent shell commands are disabled (npm steps still work)."
+  echo "      Enable once:  sudo apt-get update && sudo apt-get install -y docker.io && sudo usermod -aG docker $USER"
+  echo "      then log out, log back in, and run this script again."
+fi
 echo '==> Syntax + unit tests'
 node --check runtime/server.mjs
 node --check runtime/agent.mjs

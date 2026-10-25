@@ -12,7 +12,7 @@ import {
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
-import { DetachedError, clearAgentSession, getAgentSession, isDetached, rememberAgentSession } from '../lib/agentSessions';
+import { DetachedError, clearAgentSession, getAgentSession, getPermissionMode, isDetached, rememberAgentSession, setPermissionMode, type PermissionMode } from '../lib/agentSessions';
 import { readProjectContext, type SelectedProject } from '../lib/githubRepoContext';
 import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
 
@@ -85,6 +85,17 @@ export function ConnectedChat({
   const didStart=useRef(false);
   const mounted=useRef(true);
   const chatIdRef=useRef<string|null>(conversationId??null);
+  const [permission,setPermission]=useState<PermissionMode>('ask');
+  useEffect(()=>{void getPermissionMode().then(m=>{if(mounted.current)setPermission(m);});},[]);
+  function choosePermission(){
+    const pick=(m:PermissionMode)=>{setPermission(m);void setPermissionMode(m);};
+    Alert.alert('Agent permissions','Commands run in an isolated sandbox for this project.',[
+      {text:(permission==='ask'?'✓ ':'')+'Ask before commands',onPress:()=>pick('ask')},
+      {text:(permission==='auto'?'✓ ':'')+'Auto-run in sandbox',onPress:()=>pick('auto')},
+      {text:(permission==='safe'?'✓ ':'')+'Safe: npm steps only',onPress:()=>pick('safe')},
+      {text:'Cancel',style:'cancel'},
+    ]);
+  }
   // A newly saved chat id is not a user selection from the history drawer.
   const createdChatId=useRef<string|null>(null);
   useEffect(()=>{
@@ -231,7 +242,7 @@ export function ConnectedChat({
              '\nThese are filesystem assets for your code; do not claim you visually analyzed uploaded images.'+
              (attachments.filter(a=>a.text).length?'\nAttached text source:\n'+attachments.filter(a=>a.text).map(a=>a.name+'\n'+a.text?.slice(0,10000)).join('\n'):'')}
             :m);
-        const started=await managedWorkspace.startAgent(active,contextual,resolvedModel);
+        const started=await managedWorkspace.startAgent(active,contextual,resolvedModel,permission);
         if(mounted.current){setLastAgentJob(started.jobId);setCanContinue(false);}
         const result=await watchAgent(active,started.jobId,resolvedModel);
         return {result,contextWarning:'',edits:[] as GithubProposedEdit[]};
@@ -430,7 +441,7 @@ export function ConnectedChat({
             <Text numberOfLines={1} style={styles.modelLabel}>{model.includes('/')?model.split('/')[1]:model}</Text>
             {Icon('chevron-down',15,PURPLE)}
           </Pressable>
-          <Pressable onPress={onSettings} accessibilityLabel="Permissions">{Icon('shield',20,MUTED)}</Pressable>
+          <Pressable onPress={choosePermission} accessibilityLabel={'Agent permissions: '+permission}>{Icon(permission==='safe'?'lock':'shield',20,permission==='auto'?PURPLE:MUTED)}</Pressable>
           <Pressable onPress={()=>Alert.alert('Voice','Use the iPhone keyboard dictation microphone.')}>{Icon('mic',20,MUTED)}</Pressable>
           <Pressable onPress={()=>void submit()} disabled={!prompt.trim()||thinking} accessibilityLabel="Send"
             style={[styles.send,(!prompt.trim()||thinking)&&{opacity:0.62}]}>{Icon('arrow-up',21,'#fff')}</Pressable>

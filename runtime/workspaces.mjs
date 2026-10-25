@@ -18,11 +18,11 @@ const reply = (res,status,payload) => {
   res.end(JSON.stringify(payload));
 };
 const fail = (res,status,error)=> reply(res,status,{error});
-async function body(req){
+async function body(req,maxBytes=140000){
   let data='';
   for await(const chunk of req){
     data+=chunk.toString('utf8');
-    if(data.length>140000)throw Error('Request too large');
+    if(data.length>maxBytes)throw Error('Request too large');
   }
   try{return JSON.parse(data||'{}');}catch{throw Error('Invalid JSON');}
 }
@@ -170,6 +170,31 @@ export async function handleWorkspaceRequest(req,res,url,userId){
     }
     if(fragments.length>=2){
       const dir=await workspace(fragments[1]);
+      if(fragments.length===3 && fragments[2]==='upload' && method==='POST'){
+        const payload=await body(req,1900000);
+        const types={
+          'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp',
+          'text/plain':'.txt','text/markdown':'.md','application/json':'.json',
+          'text/css':'.css','text/html':'.html',
+          'application/javascript':'.js','text/javascript':'.js',
+        };
+        const kind=String(payload.type||'').toLowerCase();
+        const extension=types[kind];
+        if(!extension)throw Error('Unsupported file type for project upload');
+        const source=String(payload.data||'');
+        if(source.length>1800000||!/^[A-Za-z0-9+/]*={0,2}$/.test(source))
+          throw Error('Invalid file encoding or upload too large');
+        const bytes=Buffer.from(source,'base64');
+        if(!bytes.length||bytes.length>1200000)throw Error('Project asset exceeds 1.2 MB');
+        const original=String(payload.name||'asset').replace(/\.[^.]+$/,'').replace(/[^a-z0-9_-]/gi,'-').slice(0,65)||'asset';
+        const safeName=original+'-'+Date.now().toString(36)+extension;
+        const folder=await checkedFile(dir,'uploads',true);
+        await mkdir(folder,{recursive:true,mode:0o700});
+        const target=await checkedFile(dir,'uploads/'+safeName,true);
+        await writeFile(target,bytes,{flag:'wx',mode:0o600});
+        reply(res,201,{path:'uploads/'+safeName,name:safeName,size:bytes.length,type:kind});
+        return true;
+      }
       if(fragments.length===3 && fragments[2]==='files' && method==='GET'){
         const path=url.searchParams.get('path')||'';
         const current=await checkedFile(dir,path);

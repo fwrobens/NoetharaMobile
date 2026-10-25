@@ -3,7 +3,11 @@
 // Never add user-supplied domains, ports or filesystem paths to this proxy.
 import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import WebSocket, { WebSocketServer } from 'ws';
+import { createRequire } from 'node:module';
+const wsPackage=createRequire(import.meta.url)('ws');
+const WebSocket=wsPackage.WebSocket || wsPackage;
+const WebSocketServer=wsPackage.WebSocketServer || wsPackage.Server;
+if(typeof WebSocketServer!=='function')throw Error('Incompatible ws runtime; install the dependencies in runtime/package.json.');
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

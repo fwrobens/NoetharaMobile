@@ -72,7 +72,8 @@ export const managedWorkspace={
       events:Array<{id:number;kind:string;message:string;at:number;ref?:string;
         status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number}>;
       phase?:string;plan?:Array<{title:string;status:'pending'|'active'|'done'}>;files?:string[];
-      checks?:Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;startedAt?:number;
+      checks?:Partial<Record<'install'|'typecheck'|'build'|'style'|'test'|'preview',string>>;startedAt?:number;
+      metrics?:{modelMs:number;toolMs:number;requests:number;commands:number}|null;
       checkpoints?:Array<{sha:string;label:string;at:number}>;interrupted?:boolean;
       pendingApproval?:{ref:string;command:string;reason:string}|null}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)),

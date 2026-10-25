@@ -28,12 +28,11 @@ jobs:
         run: deno check supabase/functions/noethara-api/index.ts
       - name: Install isolated gateway dependencies
         run: npm install --prefix runtime --no-audit --no-fund
-      # Temporary one-time step used to retrieve npm's canonical lockfile.
+      # Temporary one-time step used to synchronize the canonical lockfile.
       - name: Emit generated runtime lockfile for repo synchronization
         run: |
           echo 'NOETHARA_LOCKFILE_BEGIN'
-          gzip -c runtime/package-lock.json | base64 -w0
-          echo
+          cat runtime/package-lock.json
           echo 'NOETHARA_LOCKFILE_END'
       - name: Managed workspace API tests
         run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs runtime/agent-v2.test.mjs runtime/mcp/client.test.mjs runtime/pages-preview.test.mjs runtime/preview-hmr.test.mjs

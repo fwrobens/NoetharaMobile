@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Keyboard, Modal, Pressable, ScrollView, Share
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
+import { ChatCodeBlock } from './ChatCodeBlock';
 import {
   noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
@@ -13,6 +14,12 @@ import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace
 
 const INK='#262429', MUTED='#88858C', PURPLE='#7355C7';
 const delay=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
+const markdownRules={
+  fence:(node:{key:string;content:string;sourceInfo?:string})=>
+    <ChatCodeBlock key={node.key} code={node.content} language={node.sourceInfo||'code'}/>,
+  code_block:(node:{key:string;content:string})=>
+    <ChatCodeBlock key={node.key} code={node.content} language="text"/>,
+};
 const Icon = (name:React.ComponentProps<typeof Feather>['name'],size=20,color=INK) =>
   <Feather name={name} size={size} color={color}/>;
 
@@ -242,7 +249,7 @@ export function ConnectedChat({
             <Text selectable style={styles.userText}>{message.content}</Text>
           </View></View>
         : <View key={i} style={styles.assistantRow}>
-            <Markdown style={mdStyle}>{message.content}</Markdown>
+            <Markdown style={mdStyle} rules={markdownRules}>{message.content.slice(0,55000)}</Markdown>
           </View>)}
       {thinking&&<View style={styles.thinking}>
         <ActivityIndicator color={PURPLE} size="small"/>

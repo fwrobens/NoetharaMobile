@@ -14,7 +14,7 @@ async function api<T>(path:string,method:'GET'|'POST'|'PUT'='GET',
     if(!token)throw Error('GitHub authentication has expired. Reconnect GitHub.');
   }
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:15000);
+  const timeout=setTimeout(()=>controller.abort(),path==='/workspaces/clone'?95000:25000);
   try {
     const result=await fetch(HOST+path,{
       method,
@@ -28,8 +28,14 @@ async function api<T>(path:string,method:'GET'|'POST'|'PUT'='GET',
     });
     const raw=await result.text();
     let json:any;
-    try{json=raw?JSON.parse(raw):{}}catch{throw Error('Unexpected workspace gateway response');}
-    if(!result.ok)throw Error(json.error||('Workspace request failed ('+result.status+')'));
+    try{json=raw?JSON.parse(raw):{}}catch{
+      const kind=result.headers.get('content-type')||'';
+      throw Error('Workspace server returned '+result.status+' '+(kind.includes('text/html')?'HTML':'non-JSON')+
+        '. Expo is running, but the AWS terminal gateway may still be on the old code. Update and restart noethara-runtime on EC2.');}
+    if(!result.ok){
+      if(result.status===404)throw Error('Workspace API not deployed on AWS (404). Update ~/NoetharaMobile and restart noethara-runtime; Expo reload alone cannot enable the server routes.');
+      throw Error(json.error||('Workspace request failed ('+result.status+')'));
+    }
     return json as T;
   }finally{clearTimeout(timeout);}
 }

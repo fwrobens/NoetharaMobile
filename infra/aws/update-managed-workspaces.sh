@@ -43,7 +43,8 @@ unset NOETHARA_TERMINAL_TOKEN || true
  cd "$REPO/runtime"
  node --input-type=module -e "await import('./preview.mjs'); console.log('[Noethara] WebSocket preview module healthy.')"
 )
-node --test "$REPO/runtime/agent.test.mjs"
+# Verify Agent 2.0 and the MCP SDK resolve successfully before PM2 is touched.
+node --test "$REPO/runtime/agent.test.mjs" "$REPO/runtime/agent-v2.test.mjs" "$REPO/runtime/mcp/client.test.mjs"
 
 # Older scripts created two competing PM2 process names. Only manage a process
 # if it points at this project's server.mjs; never stop unrelated services.

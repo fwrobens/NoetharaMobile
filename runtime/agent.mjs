@@ -128,7 +128,8 @@ async function execute(dir,name,job){
    stdio:['ignore','pipe','pipe'],detached:false
   });
   const close=(err,output)=>{if(finished)return;finished=true;clearTimeout(timer);err?reject(err):resolve(output)};
-  const timer=setTimeout(()=>{child.kill('SIGKILL');close(Error('Command exceeded time limit'))},60000);
+  const limit=name==='npm install'?150000:90000;
+  const timer=setTimeout(()=>{child.kill('SIGKILL');close(Error(name+' exceeded '+Math.round(limit/1000)+'s limit'))},limit);
   const output=buf=>{
    text=(text+buf.toString('utf8')).slice(-10000);
    event(job,text.slice(-450),'command');

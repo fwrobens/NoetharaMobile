@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getSession, noetharaAPI, type Repo } from '../lib/noetharaBackend';
 import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
@@ -166,6 +166,7 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
       <Text style={styles.newText}>New</Text>
     </Pressable>
     <Modal visible={createOpen} transparent animationType="slide" onRequestClose={()=>setCreateOpen(false)}>
+      <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalSheet}>
           <View style={styles.sheetHeader}>
@@ -201,6 +202,7 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
           </Pressable>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   </View>;
 }

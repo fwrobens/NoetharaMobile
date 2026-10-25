@@ -107,3 +107,48 @@ test('Legacy Pages address redirects to the new app host without leaking preview
   const p=await routeHost({request:new Request('https://noethara-mobile-web.pages.dev/preview/test/?ticket=secret'),next});
   assert.equal(p.status,404);
 });
+
+test('Cloudflare proxies only the vite-hmr protocol without reusing the browser handshake key', async () => {
+  const realFetch = globalThis.fetch;
+  let forwarded;
+  globalThis.fetch = async (_url, options) => {
+    forwarded = options.headers;
+    return new Response('upstream handshake rejected in test', {status: 426});
+  };
+  try {
+    const request = new Request(base + '/preview/test/', {
+      headers: {
+        upgrade: 'websocket',
+        'sec-websocket-protocol': 'vite-hmr',
+        'sec-websocket-key': 'untrusted-browser-key',
+        'sec-websocket-version': '13',
+        cookie: 'nprev_test=limited-session; other=irrelevant',
+      },
+    });
+    const response = await onRequest({request});
+    assert.equal(response.status, 426);
+    assert.equal(forwarded.get('upgrade'), 'websocket');
+    assert.equal(forwarded.get('sec-websocket-protocol'), 'vite-hmr');
+    assert.equal(forwarded.get('sec-websocket-key'), null);
+    assert.equal(forwarded.get('sec-websocket-version'), null);
+    assert.equal(forwarded.get('cookie'), 'nprev_test=limited-session');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('Cloudflare rejects unrelated websocket protocols on private preview path', async () => {
+  const realFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => {called = true;return new Response('unexpected');};
+  try {
+    const request = new Request(base + '/preview/test/', {
+      headers: { upgrade: 'websocket', 'sec-websocket-protocol': 'unrelated-protocol' },
+    });
+    const response = await onRequest({request});
+    assert.equal(response.status, 403);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

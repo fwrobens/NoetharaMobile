@@ -162,3 +162,18 @@ test('permission modes: safe refuses, ask waits for approval, auto runs',async()
  assert.equal(await _authorize(auto,'pip install flask'),true);
  await assert.rejects(_authorize(auto,'rm -rf /'),/Blocked/);
 });
+
+test('scaffold_app copies each template into an empty workspace',async()=>{
+ const { _scaffold }=await import('./agent.mjs');
+ for(const template of ['react-native','react-web','node-api']){
+  const dir=await mkdtemp(join(tmpdir(),'noethara-tpl-'));
+  try{
+   const msg=await _scaffold(dir,template);
+   assert.match(msg,/Scaffolded a verified/);
+   const pkg=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
+   assert.ok(pkg.scripts.build&&pkg.scripts.typecheck);
+   await assert.rejects(_scaffold(dir,template),/already exists/);
+  }finally{await rm(dir,{recursive:true,force:true})}
+ }
+ await assert.rejects(_scaffold(await mkdtemp(join(tmpdir(),'noethara-tpl-')),'php'),/Unknown template/);
+});

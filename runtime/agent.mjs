@@ -17,7 +17,12 @@ const MAX_ROUNDS = 80;
 const RUN_BUDGET_MS = 14 * 60 * 1000;
 const HISTORY_BATCHES = 10;
 const READ_LIMIT = 36000;
-const TEMPLATE_DIR = fileURLToPath(new URL('./templates/react-native/', import.meta.url));
+const TEMPLATES = {
+ 'react-native':{label:'React Native + TypeScript app (react-native-web + Vite preview)',next:'run_command "npm install", then build the app in src/ (start from src/App.tsx and src/theme.ts).'},
+ 'react-web':{label:'React + TypeScript website (Vite)',next:'run_command "npm install", then build the site in src/ (tokens in src/styles.css, sections in src/sections/).'},
+ 'node-api':{label:'Node + TypeScript API (Express, SQLite, auth, tests)',next:'run_command "npm install", then "npm test" to confirm the baseline, then add routes in src/app.ts with tests in test/.'},
+};
+const templateDir=name=>fileURLToPath(new URL('./templates/'+name+'/', import.meta.url));
 const jobs = new Map();
 // Jobs are persisted to disk so leaving the chat, reconnecting or a PM2 restart
 // never loses progress. Checkpoints live in a separate git dir outside the workspace.
@@ -234,17 +239,17 @@ async function deleteFile(dir,path){
  try{await unlink(target)}catch(e){if(e.code==='ENOENT')throw Error(canonicalPath(dir,path)+' does not exist');throw e}
  return 'Deleted '+relative(dir,target);
 }
-async function scaffold(dir){
+async function scaffold(dir,template='react-native'){
+ if(!Object.hasOwn(TEMPLATES,template))throw Error('Unknown template "'+template+'". Use one of: '+Object.keys(TEMPLATES).join(', '));
  try{await lstat(join(dir,'package.json'));throw Object.assign(Error('package.json already exists. Read and edit the existing project instead of scaffolding.'),{exists:true})}
  catch(e){if(e.exists||e.code!=='ENOENT')throw e}
- await cp(TEMPLATE_DIR,dir,{recursive:true,force:false,errorOnExist:false,filter:s=>!s.includes(sep+'node_modules')});
+ await cp(templateDir(template),dir,{recursive:true,force:false,errorOnExist:false,filter:s=>!s.includes(sep+'node_modules')&&!s.includes(sep+'dist')});
  const pkgPath=join(dir,'package.json');
  const pkg=JSON.parse(await readFile(pkgPath,'utf8'));
  pkg.name=basename(dir).toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'')||'noethara-app';
  await writeFile(pkgPath,JSON.stringify(pkg,null,2)+'\n',{mode:0o600});
  const files=await projectTree(dir);
- return 'Scaffolded a verified React Native + TypeScript project (react-native-web + Vite preview). Files:\n'+files.join('\n')+
-  '\nNext: run_command "npm install", then build the app in src/ (start from src/App.tsx and src/theme.ts).';
+ return 'Scaffolded a verified '+TEMPLATES[template].label+'. Files:\n'+files.join('\n')+'\nNext: '+TEMPLATES[template].next;
 }
 function git(gitDir,dir,args){
  return new Promise(done=>{
@@ -317,7 +322,7 @@ async function execute(dir,name,job){
   'npm install':['install','--no-audit','--no-fund','--legacy-peer-deps'],
   'npm run build':['run','build'],
   'npm run typecheck':['run','typecheck'],
-  'npm test':['test','--','--run'],
+  'npm test':['test'],
   'npm run dev':['run','dev','--','--host','127.0.0.1'],
  };
  if(!Object.hasOwn(allowed,name))throw Error('Unsupported command; choose npm install, npm run build, npm run typecheck, npm test or npm run dev');
@@ -367,7 +372,8 @@ const functions=[
   type:'object',properties:{path:str('Path relative to project root'),find:str('Exact existing text, copied from read_file'),replace:str('Replacement text')},required:['path','find','replace']}}},
  {type:'function',function:{name:'delete_file',description:'Delete a file in the project.',parameters:{
   type:'object',properties:{path:str('Path relative to project root')},required:['path']}}},
- {type:'function',function:{name:'scaffold_app',description:'Create a verified React Native + TypeScript project (react-native-web + Vite preview) in an EMPTY workspace. Use before writing app code when package.json is missing.',parameters:{type:'object',properties:{}}}},
+ {type:'function',function:{name:'scaffold_app',description:'Create a verified starter project in an EMPTY workspace (no package.json). react-native = mobile app; react-web = website/web app; node-api = backend API with database and auth.',parameters:{
+  type:'object',properties:{template:{type:'string',enum:['react-native','react-web','node-api'],description:'Project type'}},required:['template']}}},
  {type:'function',function:{name:'run_command',description:'Run a standard npm step (install, typecheck, build, test). Always available.',parameters:{
   type:'object',properties:{command:{type:'string',enum:['npm install','npm run typecheck','npm run build','npm test']}},required:['command']}}},
  {type:'function',function:{name:'start_preview',description:'Start the private live preview. Only after npm run build passes.',parameters:{type:'object',properties:{}}}},
@@ -437,7 +443,7 @@ const displayAction=(name,args={})=>{
  if(name==='write_file')return {kind:'write',phase:'writing',message:'Writing '+path};
  if(name==='edit_file')return {kind:'write',phase:'writing',message:'Editing '+path};
  if(name==='delete_file')return {kind:'write',phase:'writing',message:'Deleting '+path};
- if(name==='scaffold_app')return {kind:'write',phase:'writing',message:'Scaffolding React Native project'};
+ if(name==='scaffold_app')return {kind:'write',phase:'writing',message:'Scaffolding '+({'react-web':'React website','node-api':'Node API'}[args.template]||'React Native app')};
  if(name==='run_command')return {kind:'command',phase:'running',message:String(args.command||'npm command').slice(0,65)};
  if(name==='start_preview')return {kind:'preview',phase:'previewing',message:'Starting live preview'};
  if(name==='update_plan')return {kind:'plan',phase:'planning',message:'Updating plan'};
@@ -455,7 +461,7 @@ async function action(dir,name,arg,job){
  if(name==='write_file'){const r=await writeText(dir,arg.path,arg.content);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
  if(name==='edit_file'){const r=await editText(dir,arg.path,arg.find,arg.replace);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
  if(name==='delete_file'){const r=await deleteFile(dir,arg.path);job.files.add(canonicalPath(dir,arg.path));job.dirty=true;return r}
- if(name==='scaffold_app'){const r=await scaffold(dir);job.files.add('package.json');job.dirty=true;return r}
+ if(name==='scaffold_app'){const r=await scaffold(dir,String(arg.template||'react-native'));job.files.add('package.json');job.dirty=true;return r}
  if(name==='start_preview'){
   await startPreview(dir,job.workspaceId);job.checks.preview='ready';
   return 'Private live preview started; the user can open it with the Preview button in Noethara.';
@@ -529,7 +535,7 @@ async function generate(job,dir,body){
  const started=Date.now();
  let errorsInARow=0,malformed=0,verifyNudges=0,truncations=0;
  job.phase='planning';
- event(job,snapshot.length?'Reading your project and planning the changes':'Empty workspace. Planning a new React Native app','commentary');
+ event(job,snapshot.length?'Reading your project and planning the changes':'Empty workspace. Choosing the stack and planning the project','commentary');
  for(let round=0;round<MAX_ROUNDS;round++){
   job.round=round+1;
   if(job.cancelled)throw Error('Generation cancelled');
@@ -710,4 +716,4 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
  }
  deny(res,404,'Unknown coding job endpoint');return true;
 }
-export { generate as _generate, newJob as _newJob, authorize as _authorize };
+export { generate as _generate, newJob as _newJob, authorize as _authorize, scaffold as _scaffold };

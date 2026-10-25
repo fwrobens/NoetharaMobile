@@ -65,7 +65,10 @@ export async function startPreview(dir,id){
  const child=spawn('npm',['run','dev','--','--host','127.0.0.1','--port',String(port),'--strictPort','--base','/preview/'+id+'/'],{
   cwd:dir,stdio:['ignore','pipe','pipe'],
   env:{HOME:dir,PATH:process.env.PATH||'/usr/bin:/bin',NODE_ENV:'development',
-    VITE_HMR_HOST:'terminal.noethara.cloud',NO_COLOR:'1'},
+    // HMR must connect through the browser's SAME preview hostname so its
+    // HttpOnly workspace cookie is included on the WebSocket handshake.
+    // terminal.noethara.cloud is a different host and does not have that cookie.
+    VITE_HMR_HOST:'preview.noethara.cloud',NO_COLOR:'1'},
  });
  const item={id,port,child,secret,created:Date.now(),output:'',status:'starting',failed:false};
  previews.set(id,item);
@@ -152,8 +155,14 @@ export function handlePreviewUpgrade(req,socket,head){
  const authorized=String(req.headers.cookie||'').split(';')
    .map(value=>value.trim()).includes('nprev_'+id+'='+preview.secret);
  if(!authorized){socket.destroy();return}
+ // Vite only accepts its HMR WebSocket when the 'vite-hmr' subprotocol is
+ // presented. The browser supplies it to us; the old proxy accidentally
+ // omitted it on the upstream connection, breaking updates and reconnecting.
+ const protocols=String(req.headers['sec-websocket-protocol']||'')
+   .split(',').map(value=>value.trim());
+ if(!protocols.includes('vite-hmr')){socket.destroy();return;}
  previewSockets.handleUpgrade(req,socket,head,client=>{
-   const upstream=new WebSocket('ws://127.0.0.1:'+preview.port+url.pathname+url.search,{
+   const upstream=new WebSocket('ws://127.0.0.1:'+preview.port+url.pathname+url.search,'vite-hmr',{
      headers:{host:'127.0.0.1:'+preview.port}
    });
    client.on('message',(data,isBinary)=>{

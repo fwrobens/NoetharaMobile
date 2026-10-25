@@ -1,3 +1,18 @@
+## Update the coding agent (October 2026 upgrade)
+
+On the EC2 instance (`noethara-server`):
+
+```bash
+bash ~/NoetharaMobile/infra/aws/update-agent.sh
+```
+
+That pulls `main`, installs runtime deps, runs the tests and restarts the `noethara-terminal` PM2 process.
+What it ships: new agent prompts (`runtime/prompts/`), a verified React Native + TypeScript
+template (`runtime/templates/react-native/`), plan/edit/scaffold tools, and the terminal PTY sizing fix.
+Optional env (in the runtime env file, then rerun): `NOETHARA_AGENT_MODEL` (default
+`nvidia/nemotron-3-super-120b-a12b`), `NOETHARA_AGENT_MAX_TOKENS` (default 16384).
+Existing terminal sessions keep their old size until reconnect: `tmux -L noethara kill-server` once after updating.
+
 # Managed Linux workspace via Cloudflare (October 2026)
 
 **Cloudflare setup already created:** `noethara-terminal` (Tunnel ID `0e21ab61-7710-45ed-bd2f-ff7d5889751e`), configured to proxy `terminal.noethara.cloud` to `http://127.0.0.1:8789` on the EC2 host. The tunnel was verified active and the proxied DNS record published in October 2026. Check live status in Cloudflare when troubleshooting.

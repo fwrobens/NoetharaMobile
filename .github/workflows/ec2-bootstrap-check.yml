@@ -23,6 +23,7 @@ jobs:
           bash -n infra/aws/activate-managed-terminal.sh
           bash -n infra/aws/install-cli-agents.sh
           bash -n infra/aws/update-managed-workspaces.sh
+          bash -n infra/aws/update-agent.sh
           bash -n infra/aws/configure-coding-agent.sh
       - name: Check Node.js runtime syntax
         run: |
@@ -33,6 +34,9 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm ls --depth=0
+          if [ -d node_modules/playwright ]; then
+            node --input-type=module -e "await import('playwright'); console.log('Playwright resolved from runtime')"
+          fi
       - name: Exercise runtime imports and protected HTTP routes
         working-directory: runtime
         run: |

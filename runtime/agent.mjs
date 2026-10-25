@@ -40,9 +40,15 @@ function event(job,message,kind='tool'){
  if(job.events.length>100)job.events.shift();
 }
 async function listFiles(dir,path=''){
- const current=path?await safePath(dir,path):dir;
- const stat=await lstat(current);
- if(!stat.isDirectory())throw Error('Not a directory');
+ let current=dir;
+ if(path){
+   if(!validPath(path))throw Error('Invalid folder path');
+   current=resolve(dir,path);
+   if(!current.startsWith(dir+sep))throw Error('Invalid folder');
+   let node=dir;
+   for(const part of path.split('/')){node=join(node,part);const st=await lstat(node);
+     if(!st.isDirectory()||st.isSymbolicLink())throw Error('Unsafe folder');}
+ }
  const children=await readdir(current,{withFileTypes:true});
  return children.filter(e=>!forbidden.test(e.name)&&!e.isSymbolicLink()).slice(0,100)
   .map(e=>({name:e.name,type:e.isDirectory()?'directory':'file'}));

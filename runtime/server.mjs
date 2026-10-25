@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleWorkspaceRequest, workspaceDirectory } from './workspaces.mjs';
 import { handleAgentRequest } from './agent.mjs';
-import { servePreview, handlePreviewManagement } from './preview.mjs';
+import { servePreview, handlePreviewManagement, handlePreviewUpgrade } from './preview.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || '8789');
@@ -90,7 +90,13 @@ const server = createServer(async(req,res)=>{
   res.writeHead(404,{'content-type':'text/plain'});
   res.end('Not found');
 });
-const wss = new WebSocketServer({server,maxPayload:8192,perMessageDeflate:false,clientTracking:true});
+const wss = new WebSocketServer({noServer:true,maxPayload:8192,perMessageDeflate:false,clientTracking:true});
+server.on('upgrade',(req,socket,head)=>{
+ const path=new URL(req.url||'/', 'http://localhost').pathname;
+ if(path.startsWith('/preview/')){handlePreviewUpgrade(req,socket,head);return;}
+ if(path!=='/'&&path!=='/terminal'){socket.destroy();return;}
+ wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
+});
 let clients = 0;
 async function authenticate(accessToken) {
   if (typeof accessToken !== 'string' || accessToken.length<20 || accessToken.length>4096) return null;

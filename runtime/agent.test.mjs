@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalPath, recoverNestedProject } from './agent.mjs';
 import { handlePreviewManagement } from './preview.mjs';
+import { classifyNvidiaError } from './provider-errors.mjs';
 
 test('agent file paths remain scoped to existing workspace root',async()=>{
  const dir='/home/ubuntu/noethara-workspaces/todo-app';
@@ -183,4 +184,15 @@ test('finds attached image paths in chat messages',async()=>{
  assert.deepEqual(findImagePaths('Make it like this\n\nProject assets uploaded to: uploads/My Shot (2).png, uploads/notes.txt, uploads/a.JPG.'),['uploads/My Shot (2).png','uploads/a.JPG']);
  assert.deepEqual(findImagePaths('see design/ref.webp please'),['design/ref.webp']);
  assert.deepEqual(findImagePaths('no images here'),[]);
+});
+
+test('NVIDIA function/account 404 is a provider access failure, not a coding score',()=>{
+ const raw=JSON.stringify({status:404,detail:"Function 'ac74040f-9fc9-4c5e-ac74-279ba5161d69': Not found for account 'private-account-id'"});
+ const diagnosed=classifyNvidiaError(404,raw);
+ assert.equal(diagnosed.kind,'provider_access');
+ assert.equal(diagnosed.blocked,true);
+ assert.match(diagnosed.message,/account|endpoint/i);
+ assert.doesNotMatch(diagnosed.message,/private-account-id|ac74040f/);
+ assert.equal(classifyNvidiaError(401,'no').kind,'authentication');
+ assert.equal(classifyNvidiaError(429,'rate limited').kind,'rate_limited');
 });

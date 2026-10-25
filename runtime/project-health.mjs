@@ -24,8 +24,8 @@ export async function checkWebStyling(dir){
  const styles=await read(join(dir,'src/styles.css'));
  if(styles!==null&&styles.trim().length<90)
   return {ok:false,reason:'src/styles.css is empty or nearly empty. Define real typography, layout, responsive surfaces and colors before calling the UI complete.'};
- const assets=await readdir(join(dir,'dist','assets')).catch(()=>[]);
- if(assets.length&&!assets.some(filename=>filename.endsWith('.css')))
+ const assets=await readdir(join(dir,'dist','assets')).catch(()=>null);
+ if(assets!==null&&!assets.some(filename=>filename.endsWith('.css')))
   return {ok:false,reason:'Production build contains no CSS asset. Verify the stylesheet import path and run npm run build again.'};
  return {ok:true,imported:imports.map(x=>x.css)};
 }

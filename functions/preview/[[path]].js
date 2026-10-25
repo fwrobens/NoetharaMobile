@@ -29,13 +29,24 @@ export async function onRequest({ request }) {
     const matched = cookie.split(';').map(v => v.trim()).filter(v => v.startsWith('nprev_' + id + '='));
     if (matched.length) headers.set('cookie', matched.join('; '));
   }
-  for (const name of ['accept', 'accept-encoding', 'range', 'if-none-match', 'if-modified-since',
-    'sec-websocket-protocol', 'sec-websocket-version', 'sec-websocket-key']) {
+  for (const name of ['accept', 'accept-encoding', 'range', 'if-none-match', 'if-modified-since']) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
   const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
-  if (isWebSocket) headers.set('upgrade', 'websocket');
+  if (isWebSocket) {
+    // Vite requires this exact subprotocol; do not allow arbitrary WS access.
+    const offered=String(request.headers.get('sec-websocket-protocol')||'')
+      .split(',').map(p=>p.trim());
+    if (!offered.includes('vite-hmr')) {
+      return new Response('Unsupported preview WebSocket', {status:403});
+    }
+    headers.set('upgrade','websocket');
+    headers.set('sec-websocket-protocol','vite-hmr');
+    // Cloudflare Workers creates the upstream Sec-WebSocket-Key and version
+    // itself during fetch(Upgrade:websocket). Relaying browser handshake keys
+    // can break that connection and trigger Vite's direct fallback/reconnect.
+  }
   try {
     const response = await fetch(target, {
       method: request.method,

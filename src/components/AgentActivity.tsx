@@ -6,8 +6,10 @@ export type AgentEvent={id:number;kind:string;message:string;at:number;ref?:stri
  status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number};
 export type AgentPlanStep={title:string;status:'pending'|'active'|'done'};
 export type AgentChecks=Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;
-export type AgentMeta={plan:AgentPlanStep[];phase:string;files:string[];checks:AgentChecks;startedAt:number|null};
-export const emptyAgentMeta:AgentMeta={plan:[],phase:'',files:[],checks:{},startedAt:null};
+export type AgentApproval={ref:string;command:string;reason:string};
+export type AgentMeta={plan:AgentPlanStep[];phase:string;files:string[];checks:AgentChecks;startedAt:number|null;
+ checkpoints?:Array<{sha:string;label:string;at:number}>;pendingApproval?:AgentApproval|null};
+export const emptyAgentMeta:AgentMeta={plan:[],phase:'',files:[],checks:{},startedAt:null,checkpoints:[],pendingApproval:null};
 
 type IconName=React.ComponentProps<typeof Feather>['name'];
 const C={ink:'#211D26',body:'#5E5866',muted:'#948E9B',faint:'#C9C3CE',line:'#EEE9F1',card:'#FFFFFF',
@@ -15,7 +17,7 @@ const C={ink:'#211D26',body:'#5E5866',muted:'#948E9B',faint:'#C9C3CE',line:'#EEE
  red:'#C4574C',redSoft:'#FBEAE8',amber:'#B7832F'};
 const PHASES:Record<string,string>={starting:'Starting up',planning:'Planning the work',thinking:'Thinking',
  reading:'Reading the project',writing:'Writing code',running:'Running checks',previewing:'Starting preview',
- done:'Work complete',paused:'Paused',failed:'Needs attention'};
+ done:'Work complete',paused:'Paused',failed:'Needs attention',awaiting_approval:'Waiting for your approval'};
 const TOOL_ICONS:Record<string,IconName>={list_files:'folder',read_file:'file-text',write_file:'edit-3',
  edit_file:'edit-2',delete_file:'trash-2',scaffold_app:'box',run_command:'terminal',start_preview:'monitor'};
 const KIND_ICONS:Record<string,IconName>={read:'file-text',write:'edit-3',command:'terminal',preview:'monitor',
@@ -161,6 +163,27 @@ function TimelineRow({event,last}:{event:AgentEvent;last:boolean}){
   </View>
  </Animated.View>;
 }
+function ApprovalCard({approval,onApprove}:{approval:AgentApproval;onApprove?:(allow:boolean,always:boolean)=>void}){
+ const enter=useEntrance(0,10);
+ const glow=useLoop(true,1600);
+ const [sent,setSent]=useState(false);
+ const decide=(allow:boolean,always:boolean)=>{setSent(true);onApprove?.(allow,always);};
+ return <Animated.View style={[styles.approval,enter]}>
+  <View style={styles.approvalHead}>
+   <Animated.View style={[styles.approvalIcon,{opacity:glow.interpolate({inputRange:[0,0.5,1],outputRange:[1,0.55,1]})}]}>
+    <Feather name="shield" size={14} color={C.amber}/>
+   </Animated.View>
+   <Text style={styles.approvalTitle}>Allow this command?</Text>
+  </View>
+  <Text style={styles.approvalCmd} selectable>$ {approval.command}</Text>
+  {!!approval.reason&&<Text style={styles.approvalReason}>{approval.reason}</Text>}
+  <View style={styles.approvalRow}>
+   <Pressable disabled={sent} onPress={()=>decide(false,false)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Deny</Text></Pressable>
+   <Pressable disabled={sent} onPress={()=>decide(true,true)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Always allow</Text></Pressable>
+   <Pressable disabled={sent} onPress={()=>decide(true,false)} style={[styles.apBtn,styles.apPrimary,sent&&{opacity:0.6}]}><Text style={styles.apPrimaryText}>{sent?'Sent':'Allow'}</Text></Pressable>
+  </View>
+ </Animated.View>;
+}
 // Collapse running/done/failed updates of one tool call into a single row.
 function mergeEvents(events:AgentEvent[]){
  const out:AgentEvent[]=[];const byRef=new Map<string,number>();
@@ -176,8 +199,9 @@ function mergeEvents(events:AgentEvent[]){
  return out;
 }
 
-export function AgentActivity({events,busy,headline,onContinue,continuable,meta=emptyAgentMeta}:{
+export function AgentActivity({events,busy,headline,onContinue,continuable,meta=emptyAgentMeta,onUndo,onApprove}:{
  events:AgentEvent[];busy:boolean;headline:string;onContinue?:()=>void;continuable?:boolean;meta?:AgentMeta;
+ onUndo?:()=>void;onApprove?:(allow:boolean,always:boolean)=>void;
 }){
  const [expanded,setExpanded]=useState(false);
  const merged=useMemo(()=>mergeEvents(events),[events]);
@@ -216,7 +240,8 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
    <Text style={styles.section}>PLAN · {meta.plan.filter(s=>s.status==='done').length}/{total}</Text>
    {meta.plan.map((s,i)=><PlanRow key={i+s.title} step={s} index={i}/>)}
   </View>}
-  {running&&<LiveAction key={running.ref||running.id} event={running}/>}
+  {busy&&meta.pendingApproval&&<ApprovalCard key={meta.pendingApproval.ref} approval={meta.pendingApproval} onApprove={onApprove}/>}
+  {running&&!meta.pendingApproval&&<LiveAction key={running.ref||running.id} event={running}/>}
   {!running&&busy&&thought&&<View style={styles.thought}><Text style={styles.thoughtText} numberOfLines={3}>{thought.message}</Text></View>}
   {meta.files.length>0&&<View style={styles.block}>
    <Text style={styles.section}>FILES · {meta.files.length}</Text>
@@ -232,6 +257,7 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
    <Text style={styles.section}>ACTIVITY · {merged.length}</Text>
    {merged.slice(-40).map((e,i,a)=><TimelineRow key={e.ref||String(e.id)} event={e} last={i===a.length-1}/>)}
   </View>}
+  {(continuable||(onUndo&&(meta.checkpoints?.length??0)>0))&&<View style={styles.actions}>
   {continuable&&<Animated.View style={{transform:[{scale:pressScale}],alignSelf:'flex-start'}}>
    <Pressable onPress={onContinue} onPressIn={()=>press(0.96)} onPressOut={()=>press(1)} style={styles.continue}
     accessibilityRole="button" accessibilityLabel="Continue coding session">
@@ -239,6 +265,10 @@ export function AgentActivity({events,busy,headline,onContinue,continuable,meta=
     <Text style={styles.continueText}>Continue from saved files</Text>
    </Pressable>
   </Animated.View>}
+  {onUndo&&(meta.checkpoints?.length??0)>0&&<Pressable onPress={onUndo} style={styles.undo} accessibilityRole="button" accessibilityLabel="Undo this session's file changes">
+   <Feather name="rotate-ccw" size={13} color={C.body}/><Text style={styles.undoText}>Undo changes</Text>
+  </Pressable>}
+  </View>}
  </Animated.View>;
 }
 
@@ -295,5 +325,20 @@ const styles=StyleSheet.create({
  continue:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:10,paddingHorizontal:14,borderRadius:14,backgroundColor:C.accent},
  continueText:{fontSize:13,fontWeight:'700',color:'#FFF'},
  thinking:{flexDirection:'row',alignItems:'center',gap:10,paddingVertical:10},
+ actions:{flexDirection:'row',flexWrap:'wrap',gap:8,alignItems:'center'},
+ undo:{flexDirection:'row',alignItems:'center',gap:7,paddingVertical:10,paddingHorizontal:13,borderRadius:14,borderWidth:1,borderColor:C.line,backgroundColor:'#FBFAFC'},
+ undoText:{fontSize:13,fontWeight:'600',color:C.body},
+ approval:{padding:12,borderRadius:16,backgroundColor:'#FFF9EF',borderWidth:1,borderColor:'#F1E2C4',gap:8},
+ approvalHead:{flexDirection:'row',alignItems:'center',gap:8},
+ approvalIcon:{width:24,height:24,borderRadius:8,backgroundColor:'#FBEFD6',alignItems:'center',justifyContent:'center'},
+ approvalTitle:{fontSize:13.5,fontWeight:'700',color:C.ink},
+ approvalCmd:{fontFamily:'Menlo',fontSize:12,color:C.ink,backgroundColor:'#FFFFFF',borderRadius:10,padding:10,borderWidth:1,borderColor:'#F1E2C4'},
+ approvalReason:{fontSize:12,color:C.body,lineHeight:17},
+ approvalRow:{flexDirection:'row',gap:6,justifyContent:'flex-end'},
+ apBtn:{paddingVertical:8,paddingHorizontal:12,borderRadius:11},
+ apGhost:{backgroundColor:'#FFFFFF',borderWidth:1,borderColor:'#EDE3D2'},
+ apGhostText:{fontSize:12.5,fontWeight:'600',color:C.body},
+ apPrimary:{backgroundColor:C.ink},
+ apPrimaryText:{fontSize:12.5,fontWeight:'700',color:'#FFF'},
  thinkingText:{fontSize:13.5,color:C.muted,fontWeight:'500'},
 });

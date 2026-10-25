@@ -6,6 +6,8 @@ import { resolve, relative, join, sep, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, statSync } from 'node:fs';
 import { startPreview } from './preview.mjs';
 import { ENGINEERING_PROMPT } from './prompts/engineering.mjs';
 import { DESIGN_PROMPT } from './prompts/design.mjs';
@@ -16,6 +18,48 @@ const HISTORY_BATCHES = 10;
 const READ_LIMIT = 36000;
 const TEMPLATE_DIR = fileURLToPath(new URL('./templates/react-native/', import.meta.url));
 const jobs = new Map();
+// Jobs are persisted to disk so leaving the chat, reconnecting or a PM2 restart
+// never loses progress. Checkpoints live in a separate git dir outside the workspace.
+const STATE_DIR = process.env.NOETHARA_STATE_DIR || join(homedir(),'.noethara');
+const JOB_DIR = join(STATE_DIR,'jobs');
+const CHECKPOINT_DIR = join(STATE_DIR,'checkpoints');
+try{mkdirSync(JOB_DIR,{recursive:true,mode:0o700});mkdirSync(CHECKPOINT_DIR,{recursive:true,mode:0o700})}catch{}
+const serialize=job=>JSON.stringify({...job,files:[...job.files],_saveTimer:undefined});
+function saveJobNow(job){
+ clearTimeout(job._saveTimer);job._saveTimer=undefined;
+ try{writeFileSync(join(JOB_DIR,job.id+'.json'),serialize(job),{mode:0o600})}catch{}
+}
+function scheduleSave(job){
+ if(job._saveTimer)return;
+ job._saveTimer=setTimeout(()=>saveJobNow(job),500);
+ job._saveTimer.unref?.();
+}
+function hydrate(raw){
+ const job={...raw,files:new Set(raw.files||[]),plan:raw.plan||[],checks:raw.checks||{},checkpoints:raw.checkpoints||[],events:raw.events||[]};
+ if(job.status==='running'){
+  job.status='paused';job.phase='paused';job.interrupted=true;
+  job.answer='The server restarted while this session was running. Your files and checkpoints are saved. Tap Continue to resume.';
+  job.events.push({id:(job.events.at(-1)?.id||0)+1,kind:'paused',message:'Server restarted; session paused safely.',at:Date.now()});
+ }
+ return job;
+}
+function loadJob(id){
+ if(!/^[0-9a-f-]{36}$/.test(id))return null;
+ try{const job=hydrate(JSON.parse(readFileSync(join(JOB_DIR,id+'.json'),'utf8')));jobs.set(job.id,job);return job}catch{return null}
+}
+(function restoreJobs(){
+ let names=[];try{names=readdirSync(JOB_DIR).filter(n=>n.endsWith('.json'))}catch{return}
+ const week=7*24*3600*1000;
+ for(const name of names){
+  const file=join(JOB_DIR,name);
+  try{
+   if(Date.now()-statSync(file).mtimeMs>week){unlinkSync(file);continue}
+   const raw=JSON.parse(readFileSync(file,'utf8'));
+   if(Date.now()-raw.created<24*3600*1000){const job=hydrate(raw);jobs.set(job.id,job);if(raw.status==='running')saveJobNow(job)}
+  }catch{}
+ }
+})();
+const getJob=id=>jobs.get(id)||loadJob(id);
 const pause = ms=>new Promise(r=>setTimeout(r,ms));
 const deny = (res,status,error)=>{
  res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
@@ -76,6 +120,7 @@ async function safePath(dir,path,createParents=false){
 function event(job,message,kind='tool',extra={}){
  job.events.push({id:job.events.length?job.events[job.events.length-1].id+1:1,kind,message:String(message).slice(0,1800),at:Date.now(),...extra});
  if(job.events.length>300)job.events.shift();
+ scheduleSave(job);
 }
 // Recursive project tree (bounded) so the model sees the structure in one call.
 export async function projectTree(dir,start='',maxEntries=260){
@@ -161,6 +206,41 @@ async function scaffold(dir){
  const files=await projectTree(dir);
  return 'Scaffolded a verified React Native + TypeScript project (react-native-web + Vite preview). Files:\n'+files.join('\n')+
   '\nNext: run_command "npm install", then build the app in src/ (start from src/App.tsx and src/theme.ts).';
+}
+function git(gitDir,dir,args){
+ return new Promise(done=>{
+  const child=spawn('git',['--git-dir='+gitDir,'--work-tree='+dir,...args],{cwd:dir,stdio:['ignore','pipe','pipe'],
+   env:{PATH:process.env.PATH||'/usr/bin:/bin',HOME:STATE_DIR,GIT_AUTHOR_NAME:'Noethara',GIT_AUTHOR_EMAIL:'agent@noethara.local',
+    GIT_COMMITTER_NAME:'Noethara',GIT_COMMITTER_EMAIL:'agent@noethara.local'}});
+  let out='';child.stdout.on('data',d=>{out+=d});child.stderr.on('data',d=>{out+=d});
+  child.on('error',e=>done({code:1,out:String(e.message)}));child.on('close',code=>done({code,out:out.trim()}));
+ });
+}
+const gitDirFor=workspaceId=>join(CHECKPOINT_DIR,String(workspaceId).replace(/[^\w-]/g,'_')+'.git');
+export async function checkpoint(job,dir,label){
+ try{
+  const gitDir=gitDirFor(job.workspaceId);
+  try{await lstat(gitDir)}catch{const r=await git(gitDir,dir,['init','-q']);if(r.code)return null}
+  await mkdir(join(gitDir,'info'),{recursive:true});
+  await writeFile(join(gitDir,'info','exclude'),'node_modules/\ndist/\nbuild/\n.vite/\n.expo/\n.git/\n*.log\n.env\n.env.*\n.npmrc\n');
+  await git(gitDir,dir,['add','-A']);
+  await git(gitDir,dir,['commit','-q','--allow-empty','-m',label]);
+  const r=await git(gitDir,dir,['rev-parse','--short','HEAD']);
+  if(r.code||!/^[0-9a-f]{4,40}$/.test(r.out))return null;
+  job.checkpoints.push({sha:r.out,label,at:Date.now()});scheduleSave(job);
+  return r.out;
+ }catch{return null}
+}
+async function restoreCheckpoint(job,dir,sha){
+ const known=job.checkpoints.find(c=>c.sha===sha);
+ if(!known)throw Error('Unknown checkpoint');
+ const gitDir=gitDirFor(job.workspaceId);
+ await checkpoint(job,dir,'Before restoring '+sha);
+ let r=await git(gitDir,dir,['reset','-q','--hard',sha]);
+ if(r.code)throw Error('Restore failed: '+r.out.slice(0,200));
+ r=await git(gitDir,dir,['clean','-fdq']);
+ event(job,'Restored files to checkpoint "'+known.label+'"','result');
+ return known;
 }
 const PLAN_STATUS={pending:'pending',todo:'pending',active:'active',in_progress:'active',running:'active',doing:'active',done:'done',completed:'done',complete:'done'};
 function setPlan(job,steps){
@@ -363,6 +443,7 @@ async function generate(job,dir,body){
  const recovery=await recoverNestedProject(dir).catch(()=>null);
  if(recovery?.moved?.length)event(job,'Recovered nested files to project root: '+recovery.moved.join(', '),'result');
  const origin=body.messages.slice(-10);
+ await checkpoint(job,dir,'Before session '+job.id.slice(0,8));
  const snapshot=await projectTree(dir);
  const hasPackage=snapshot.includes('package.json');
  const workspaceNote='\n\n# Workspace snapshot at session start ('+basename(dir)+')\n'+
@@ -470,10 +551,11 @@ async function generate(job,dir,body){
  event(job,'Session paused. Continue to finish the remaining work.','paused');
 }
 const newJob=(id,workspaceId,input)=>({id,workspaceId,created:Date.now(),status:'running',phase:'starting',answer:'',events:[],
- cancelled:false,error:'',input,plan:[],files:new Set(),checks:{},round:0,dirty:false});
+ cancelled:false,error:'',input,plan:[],files:new Set(),checks:{},round:0,dirty:false,checkpoints:[]});
+const finish=(job,dir)=>checkpoint(job,dir,'After session '+job.id.slice(0,8)).finally(()=>saveJobNow(job));
 
 function clean(){
- for(const [id,job] of jobs)if(Date.now()-job.created>30*60*1000)jobs.delete(id);
+ for(const [id,job] of jobs)if(job.status!=='running'&&Date.now()-job.created>24*3600*1000)jobs.delete(id);
 }
 export async function handleAgentRequest(req,res,url,workspaceId,dir){
  clean();
@@ -493,19 +575,34 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const id=randomUUID();
   const job=newJob(id,workspaceId,{model:input.model,messages:input.messages});
   jobs.set(id,job);event(job,'Starting the coding agent','progress');
-  void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}})
+  void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
     .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
   send(res,202,{jobId:id,status:'running'});return true;
  }
+ if(parts.length===3&&req.method==='GET'){
+  const list=[...jobs.values()].filter(j=>j.workspaceId===workspaceId).sort((a,b)=>b.created-a.created).slice(0,15)
+   .map(j=>({jobId:j.id,status:j.status,phase:j.phase,created:j.created,prompt:String(j.input?.messages?.at(-1)?.content||'').slice(0,140)}));
+  send(res,200,{jobs:list});return true;
+ }
+ if(parts.length===5&&parts[4]==='restore'&&req.method==='POST'){
+  const job=getJob(parts[3]);
+  if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
+  if(job.status==='running'){deny(res,409,'Stop the session before restoring files');return true}
+  const body=await new Promise((ok,no)=>{let raw='';req.on('data',c=>{raw+=c;if(raw.length>2000)req.destroy()});req.on('end',()=>{try{ok(JSON.parse(raw||'{}'))}catch{no(Error('Invalid JSON'))}});req.on('error',no)});
+  const sha=String(body.sha||job.checkpoints[0]?.sha||'');
+  const restored=await restoreCheckpoint(job,dir,sha);
+  saveJobNow(job);send(res,200,{restored:restored.sha,label:restored.label});return true;
+ }
  if(parts.length===4&&req.method==='GET'){
-  const job=jobs.get(parts[3]);
+  const job=getJob(parts[3]);
   if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
   send(res,200,{jobId:job.id,status:job.status,phase:job.phase,answer:job.answer,error:job.error,events:job.events,
-   plan:job.plan,files:[...job.files],checks:job.checks,round:job.round,startedAt:job.created,model:job.input?.model||null});
+   plan:job.plan,files:[...job.files],checks:job.checks,round:job.round,startedAt:job.created,model:job.input?.model||null,
+   checkpoints:job.checkpoints,interrupted:Boolean(job.interrupted),pendingApproval:job.pendingApproval||null});
   return true;
  }
  if(parts.length===5&&parts[4]==='continue'&&req.method==='POST'){
-  const previous=jobs.get(parts[3]);
+  const previous=getJob(parts[3]);
   if(!previous||previous.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
   if(previous.status==='running'){deny(res,409,'The coding session is already running');return true}
   if([...jobs.values()].some(j=>j.status==='running')){deny(res,429,'Another coding session is running');return true}
@@ -517,14 +614,14 @@ export async function handleAgentRequest(req,res,url,workspaceId,dir){
   const job=newJob(id,workspaceId,input);job.plan=(previous.plan||[]).map(s=>({...s}));
   jobs.set(id,job);
   event(job,'Continuing from the files already in your workspace.','commentary');
-  void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}})
+  void generate(job,dir,input).then(()=>{if(job.status==='running'){job.status='completed';job.phase='done';event(job,'Finished','done')}}).finally(()=>finish(job,dir))
    .catch(e=>{job.status='failed';job.phase='failed';job.error=String(e.message||e);event(job,job.error,'error')});
   send(res,202,{jobId:id,status:'running'});return true;
  }
  if(parts.length===5&&parts[4]==='cancel'&&req.method==='POST'){
-  const job=jobs.get(parts[3]);
+  const job=getJob(parts[3]);
   if(!job||job.workspaceId!==workspaceId){deny(res,404,'Job not found');return true}
-  job.cancelled=true;send(res,200,{cancelled:true});return true;
+  job.cancelled=true;saveJobNow(job);send(res,200,{cancelled:true});return true;
  }
  deny(res,404,'Unknown coding job endpoint');return true;
 }

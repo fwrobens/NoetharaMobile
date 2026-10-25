@@ -72,10 +72,18 @@ export const managedWorkspace={
       events:Array<{id:number;kind:string;message:string;at:number;ref?:string;
         status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number}>;
       phase?:string;plan?:Array<{title:string;status:'pending'|'active'|'done'}>;files?:string[];
-      checks?:Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;startedAt?:number}>(
+      checks?:Partial<Record<'install'|'typecheck'|'build'|'test'|'preview',string>>;startedAt?:number;
+      checkpoints?:Array<{sha:string;label:string;at:number}>;interrupted?:boolean;
+      pendingApproval?:{ref:string;command:string;reason:string}|null}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)),
   continueAgent:(id:string,jobId:string)=>api<{jobId:string;status:string}>(
     '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/continue','POST',{}),
+  listAgents:(id:string)=>api<{jobs:Array<{jobId:string;status:string;phase:string;created:number;prompt:string}>}>(
+      '/workspaces/'+p(id)+'/agent'),
+  restoreAgent:(id:string,jobId:string,sha?:string)=>api<{restored:string;label:string}>(
+      '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/restore','POST',sha?{sha}:{}),
+  approveAgent:(id:string,jobId:string,allow:boolean,always=false)=>api<{ok:boolean}>(
+      '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/approve','POST',{allow,always}),
   cancelAgent:(id:string,jobId:string)=>api<{cancelled:boolean}>(
       '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/cancel','POST',{}),
   status:(id:string)=>api<{workspace:string;changes:string}>('/workspaces/'+p(id)+'/git-status'),

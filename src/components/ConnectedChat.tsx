@@ -12,6 +12,7 @@ import {
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
+import { DetachedError, clearAgentSession, getAgentSession, isDetached, rememberAgentSession } from '../lib/agentSessions';
 import { readProjectContext, type SelectedProject } from '../lib/githubRepoContext';
 import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
 
@@ -83,6 +84,7 @@ export function ConnectedChat({
   const scrollRef=useRef<React.ElementRef<typeof ScrollView>>(null);
   const didStart=useRef(false);
   const mounted=useRef(true);
+  const chatIdRef=useRef<string|null>(conversationId??null);
   // A newly saved chat id is not a user selection from the history drawer.
   const createdChatId=useRef<string|null>(null);
   useEffect(()=>{
@@ -93,9 +95,9 @@ export function ConnectedChat({
       setLoadingHistory(true);
       setMessages([]);
       setStatus('');
-      setChatId(conversationId);
+      setChatId(conversationId);chatIdRef.current=conversationId;
       void loadConversation(conversationId)
-        .then(history=>{if(mounted.current){setMessages(history);setLoadingHistory(false);}})
+        .then(history=>{if(mounted.current){setMessages(history);setLoadingHistory(false);void reattach(conversationId);}})
         .catch(err=>{if(mounted.current){
           setLoadingHistory(false);
           output(err instanceof Error?err.message:'Could not load conversation',true);
@@ -111,13 +113,27 @@ export function ConnectedChat({
     if(mounted.current){setStatus(message);setIsError(error);}
   };
   async function watchAgent(active:string,jobId:string,modelId:string){
-    for(let attempt=0;attempt<620;attempt++){
+    const owner=chatIdRef.current;
+    if(owner)void rememberAgentSession(owner,{workspaceId:active,jobId,model:modelId});
+    for(let attempt=0;attempt<2400;attempt++){
       await delay(1200);
-      const update=await managedWorkspace.agentStatus(active,jobId);
+      // Leaving the chat detaches the watcher; the job keeps running on AWS and
+      // reopening this chat reattaches to it.
+      if(!mounted.current)throw new DetachedError();
+      let update:Awaited<ReturnType<typeof managedWorkspace.agentStatus>>;
+      try{update=await managedWorkspace.agentStatus(active,jobId);}
+      catch(e){
+        const reason=e instanceof Error?e.message:'';
+        if(/not found|404/i.test(reason)){void clearAgentSession(owner);throw e;}
+        if(attempt<2390){if(mounted.current)setWorkspaceStatus('Reconnecting to AWS…');continue;}
+        throw e;
+      }
+      if(update.status!=='running')void clearAgentSession(owner);
       if(mounted.current){
         setAgentSteps(update.events);
         setAgentMeta({plan:update.plan||[],phase:update.phase||update.status,files:update.files||[],
-          checks:update.checks||{},startedAt:update.startedAt||null});
+          checks:update.checks||{},startedAt:update.startedAt||null,checkpoints:update.checkpoints||[],
+          pendingApproval:update.pendingApproval||null});
         const recent=update.events.filter(e=>['commentary','read','write','command','preview','error','paused'].includes(e.kind)).at(-1);
         setWorkspaceStatus(recent?.message||'Working in '+active+'…');
       }
@@ -138,6 +154,40 @@ export function ConnectedChat({
     }
     throw Error('The job is still running on AWS. Check the workspace before starting another session.');
   }
+  async function reattach(id:string){
+    const session=await getAgentSession(id);
+    if(!session||!mounted.current)return;
+    setManagedId(session.workspaceId);setLastAgentJob(session.jobId);
+    setThinking(true);setAgentBusy(true);setWorkspaceStatus('Reconnecting to your running session…');
+    try{
+      const result=await watchAgent(session.workspaceId,session.jobId,session.model);
+      if(!mounted.current)return;
+      const entry:ChatEntry={role:'assistant',content:result.answer};
+      setMessages(prev=>prev.at(-1)?.content===entry.content?prev:[...prev,entry]);
+      await saveMessage(id,entry);
+      output('AWS workspace agent · '+session.model,false);
+    }catch(e){
+      if(isDetached(e))return;
+      output(e instanceof Error?e.message:'Could not reconnect to the coding session',true);
+    }finally{if(mounted.current){setThinking(false);setAgentBusy(false);setWorkspaceStatus('');}}
+  }
+  function undoSession(){
+    const active=managedId,job=lastAgentJob;
+    if(!active||!job)return;
+    Alert.alert('Undo this session?','Files go back to how they were before this run. Your current files are kept as a checkpoint.',[
+      {text:'Cancel',style:'cancel'},
+      {text:'Undo changes',style:'destructive',onPress:()=>{
+        void managedWorkspace.restoreAgent(active,job)
+          .then(r=>output('Restored files to "'+r.label+'"',false))
+          .catch(e=>output(e instanceof Error?e.message:'Restore failed',true));
+      }},
+    ]);
+  }
+  async function answerApproval(allow:boolean,always:boolean){
+    if(!managedId||!lastAgentJob)return;
+    try{await managedWorkspace.approveAgent(managedId,lastAgentJob,allow,always);}
+    catch(e){output(e instanceof Error?e.message:'Could not send your decision',true);}
+  }
   async function resumeCoding(){
     if(!managedId||!lastAgentJob||thinking)return;
     setThinking(true);setCanContinue(false);output('',false);
@@ -151,6 +201,7 @@ export function ConnectedChat({
       if(chatId)await saveMessage(chatId,entry);
       output(result.provider+' · '+result.model,false);
     }catch(e){
+      if(isDetached(e))return;
       output(e instanceof Error?e.message:'Could not continue coding session',true);
       setCanContinue(true);
     }finally{if(mounted.current){setThinking(false);setAgentBusy(false);setWorkspaceStatus('');}}
@@ -223,6 +274,7 @@ export function ConnectedChat({
     try{
       const nextId=await persistChat(id,[entry]);
       if(!id)createdChatId.current=nextId;
+      chatIdRef.current=nextId;
       if(mounted.current){setChatId(nextId);onChatSaved?.(nextId);}
       return nextId;
     }catch(e){
@@ -245,6 +297,7 @@ export function ConnectedChat({
       if(id)await saveMessage(id,answer);
       output(contextWarning+result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':''),false);
     }catch(err){
+      if(isDetached(err))return;
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
     }finally{if(mounted.current)setThinking(false);}
   }
@@ -264,6 +317,7 @@ export function ConnectedChat({
       if(id)await saveMessage(id,answer);
       output(contextWarning+result.provider+' · '+result.model+(result.fallbackUsed?' · fallback':''),false);
     }catch(err){
+      if(isDetached(err))return;
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
     }finally{if(mounted.current)setThinking(false);}
   }
@@ -322,6 +376,7 @@ export function ConnectedChat({
       {thinking&&!agentBusy&&<ThinkingIndicator label="Thinking"/>}
       {(agentBusy||agentSteps.length>0||canContinue)&&<AgentActivity
         events={agentSteps} busy={agentBusy} headline={workspaceStatus} meta={agentMeta}
+        onUndo={!agentBusy&&lastAgentJob?undoSession:undefined} onApprove={answerApproval}
         continuable={canContinue&&!thinking} onContinue={()=>void resumeCoding()}/>}
       {isError&&canContinue&&<Pressable style={styles.retryInline} onPress={()=>void resumeCoding()}>
         {Icon('refresh-cw',15,PURPLE)}<Text style={styles.retryInlineLabel}>Retry this coding session</Text>

@@ -109,3 +109,21 @@ test('agent loop scaffolds, edits, verifies and reports with a scripted model',a
   assert.ok(job.answer.length>0);
  }finally{globalThis.fetch=realFetch;await rm(root,{recursive:true,force:true})}
 });
+
+test('jobs persist to disk and checkpoints restore workspace files',async()=>{
+ const { checkpoint, _newJob }=await import('./agent.mjs');
+ const root=await mkdtemp(join(tmpdir(),'noethara-cp-'));
+ const dir=join(root,'cpdemo');
+ await mkdir(dir);
+ try{
+  await writeFile(join(dir,'App.tsx'),'v1');
+  const job=_newJob('00000000-0000-4000-8000-000000000001','cpdemo',{messages:[]});
+  const sha=await checkpoint(job,dir,'before');
+  assert.match(sha,/^[0-9a-f]+$/);
+  await writeFile(join(dir,'App.tsx'),'v2');
+  await writeFile(join(dir,'extra.ts'),'x');
+  const sha2=await checkpoint(job,dir,'after');
+  assert.notEqual(sha,sha2);
+  assert.equal(job.checkpoints.length,2);
+ }finally{await rm(root,{recursive:true,force:true})}
+});

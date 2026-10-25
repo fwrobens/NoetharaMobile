@@ -185,7 +185,7 @@ async function generate(job,dir,body){
  const key=process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY;
  if(!key)throw Error('AWS coding agent is not configured: set NOETHARA_NVIDIA_API_KEY in the managed runtime environment.');
  const model=String(body.model||'nvidia/nemotron-3-super-120b-a12b');
- if(!/^[\\w.-]{1,90}\\/[\\w.:-]{1,100}$/.test(model))throw Error('Unsupported AI model');
+ if(!/^[\w.-]{1,90}\/[\w.:-]{1,100}$/.test(model))throw Error('Unsupported AI model');
  const origin=body.messages.slice(-10);
  const workHistory=[];
  const completedActions=[];

@@ -38,8 +38,21 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
   const frameHeight=Math.max(440,height-insets.top-insets.bottom-190)/scale;
   const wrappedWidth=selected.width*scale;
   const wrappedHeight=frameHeight*scale;
-  const canEmbed=useMemo(()=>{try{return Boolean(url&&new URL(url).protocol==='https:')}catch{return false}},[url]);
-  const open=()=>{if(url)void Linking.openURL(url)};
+  // The private terminal host uses a SameSite=Strict preview cookie. Browser
+  // iframes cannot send that cookie cross-site; the Pages Function under
+  // /preview/* securely forwards requests from the current first-party origin.
+  const browserUrl=useMemo(()=>{
+    if(!url||typeof window==='undefined')return null;
+    try{
+      const parsed=new URL(url);
+      if(parsed.origin!=='https://terminal.noethara.cloud')return null;
+      const parts=parsed.pathname.split('/');
+      if(parts[1]!=='preview'||!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(parts[2]||''))return null;
+      return window.location.origin+parsed.pathname+parsed.search;
+    }catch{return null;}
+  },[url]);
+  const canEmbed=Boolean(browserUrl);
+  const open=()=>{if(browserUrl)void Linking.openURL(browserUrl)};
   const refresh=async()=>{
     setLoading(true);setError('');
     if(workspaceId){
@@ -74,17 +87,17 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
         </Pressable>)}
       </View>
       <View style={styles.viewport}>
-        {canEmbed&&url?React.createElement('div',{
+        {canEmbed&&browserUrl?React.createElement('div',{
           style:{width:wrappedWidth,height:wrappedHeight,overflow:'hidden',background:'#fff',margin:'0 auto',borderRadius:8},
         },React.createElement('iframe',{
-          key:url+'-'+version+'-'+device,
-          src:url,
+          key:browserUrl+'-'+version+'-'+device,
+          src:browserUrl,
           title:'Noethara generated app preview',
           onLoad:()=>setLoading(false),
           referrerPolicy:'no-referrer',
           style:{width:selected.width,height:frameHeight,border:0,display:'block',
             transform:'scale('+scale+')',transformOrigin:'top left',backgroundColor:'#ffffff'},
-        })): <Text style={styles.notice}>Only secure HTTPS previews can be embedded.</Text>}
+        })): <Text style={styles.notice}>Preview URL is not a recognized Noethara workspace link.</Text>}
         {loading&&canEmbed&&<View pointerEvents="none" style={styles.loading}>
           <ActivityIndicator color={PURPLE}/><Text style={styles.notice}>Loading preview…</Text>
         </View>}
@@ -95,7 +108,7 @@ export function WorkspacePreview({url,visible,onClose,workspaceId}:{
         <Text style={styles.logText} selectable>{server||'Checking the preview server…'}</Text>
       </View>}
       <View style={styles.footer}>
-        <Text style={styles.hint}>If the embedded preview stays blank, use Open in browser.</Text>
+        <Text style={styles.hint}>If the preview is blank, open it in a new tab.</Text>
         <Pressable onPress={open} accessibilityRole="button" style={styles.button}>
           <Feather name="external-link" size={15} color="#FFFFFF"/>
           <Text style={styles.buttonText}>Open in browser</Text>

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { getSession } from '../lib/noetharaBackend';
+import { getSession, noetharaAPI, type Repo } from '../lib/noetharaBackend';
+import { managedWorkspace, type ManagedWorkspace } from '../lib/managedWorkspace';
 
 type Agent='opencode'|'codex'|'claude';
 type State='checking'|'awake'|'offline';
@@ -15,10 +16,17 @@ const Icon=({name,size=20,color='#242326'}:{
   name:React.ComponentProps<typeof Feather>['name'];size?:number;color?:string;
 })=><Feather name={name} size={size} color={color}/>;
 const HOST='https://terminal.noethara.cloud';
-export function TerminalDashboard({onBack,onAgent}:{
-  onBack:()=>void;onAgent:(agent:Agent)=>void;
+export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
+  onBack:()=>void;onAgent:(agent:Agent,workspaceId?:string)=>void;
+  onWorkspace:(id:string)=>void;
 }) {
   const [state,setState]=useState<State>('checking');
+  const [projects,setProjects]=useState<ManagedWorkspace[]>([]);
+  const [createOpen,setCreateOpen]=useState(false);
+  const [projectName,setProjectName]=useState('');
+  const [repoName,setRepoName]=useState('');
+  const [repos,setRepos]=useState<Repo[]>([]);
+  const [saving,setSaving]=useState(false);
   const [message,setMessage]=useState('');
   const [cliInstalled,setCliInstalled]=useState<Partial<Record<Agent,boolean>>|null>(null);
   async function refresh(){
@@ -36,7 +44,9 @@ export function TerminalDashboard({onBack,onAgent}:{
         if(r.ok){
           const payload=await r.json() as {cliInstalled?:Partial<Record<Agent,boolean>>};
           setCliInstalled(payload.cliInstalled||null);
-          setState('awake');return;
+          setState('awake');
+          try{setProjects((await managedWorkspace.list()).workspaces);}catch{setProjects([]);}
+          return;
         }
         setMessage(r.status===401?'Your account is not authorized for this workspace.':
           'The Linux workspace is not available yet.');
@@ -47,6 +57,22 @@ export function TerminalDashboard({onBack,onAgent}:{
     setState('offline');
   }
   useEffect(()=>{void refresh();},[]);
+  async function showNew(){
+    setProjectName('');setRepoName('');setCreateOpen(true);
+    try{setRepos((await noetharaAPI.repos()).repos);}catch{setRepos([]);}
+  }
+  async function create(){
+    const name=projectName.trim();
+    if(!/^[A-Za-z][A-Za-z0-9_-]{0,47}$/.test(name)){
+      Alert.alert('Invalid name','Use letters, digits, underscores or hyphens (up to 48 characters).');return;
+    }
+    setSaving(true);
+    try{
+      const result=repoName?await managedWorkspace.clone(repoName,name):await managedWorkspace.create(name);
+      setCreateOpen(false);await refresh();onWorkspace(result.workspace.id);
+    }catch(e){Alert.alert('Workspace not created',e instanceof Error?e.message:'Please try again.');}
+    finally{setSaving(false);}
+  }
   return <View style={styles.root}>
     <View style={styles.header}>
       <Pressable onPress={onBack} accessibilityLabel="Back" style={styles.topControl}>
@@ -88,7 +114,7 @@ export function TerminalDashboard({onBack,onAgent}:{
         <Text style={styles.sectionTitle}>Projects</Text>
         <Text style={styles.muted}>Managed Linux</Text>
       </View>
-      <Pressable style={styles.projectCard} onPress={()=>onAgent('opencode')}>
+      {projects.length===0&&<Pressable style={styles.projectCard} onPress={()=>onAgent('opencode')}>
         <View style={styles.projectIcon}><Icon name="folder" size={23} color="#767377"/></View>
         <View style={styles.projectDetails}>
           <Text style={styles.projectTitle}>Noethara workspace</Text>
@@ -96,14 +122,25 @@ export function TerminalDashboard({onBack,onAgent}:{
           <Text style={styles.projectSub}>{state==='awake'?'Server connected · Open a CLI session':'Awaiting secure server connection'}</Text>
         </View>
         <Icon name="chevron-right" size={23} color="#8B8888"/>
-      </Pressable>
+      </Pressable>}
+      {projects.map(project=><Pressable key={project.id} style={[styles.projectCard,{marginBottom:10}]}
+        onPress={()=>onWorkspace(project.id)}>
+        <View style={styles.projectIcon}><Icon name="folder" size={23} color="#767377"/></View>
+        <View style={styles.projectDetails}>
+          <Text numberOfLines={1} style={styles.projectTitle}>{project.name}</Text>
+          <Text numberOfLines={1} style={styles.projectPath}>{project.path}</Text>
+          <Text style={styles.projectSub}>Persistent Linux project · View files</Text>
+        </View>
+        <Pressable onPress={()=>onAgent('opencode',project.id)} accessibilityLabel={'Open CLI in '+project.name}
+          style={styles.topControl}><Icon name="terminal" size={21} color="#7654C8"/></Pressable>
+      </Pressable>)}
 
       <View style={[styles.sectionHeading,{marginTop:34}]}>
         <Text style={styles.sectionTitle}>Recent projects</Text>
       </View>
       <View style={styles.recentEmpty}>
         <Icon name="layers" size={21} color="#817F80"/>
-        <Text style={styles.recentText}>Project history will appear when workspace synchronization is available.</Text>
+        <Text style={styles.recentText}>Select a project to browse its files, or create one using New.</Text>
       </View>
       {state==='offline'&&!!message&&
         <Pressable onPress={()=>void refresh()} style={styles.notice}>
@@ -112,14 +149,60 @@ export function TerminalDashboard({onBack,onAgent}:{
           <Icon name="refresh-cw" size={16} color="#BAA5D9"/>
         </Pressable>}
     </ScrollView>
-    <Pressable style={styles.newButton} onPress={()=>onAgent('opencode')}>
+    <Pressable style={styles.newButton} onPress={()=>void showNew()}>
       <Icon name="plus" size={25} color="#FFFFFF"/>
       <Text style={styles.newText}>New</Text>
     </Pressable>
+    <Modal visible={createOpen} transparent animationType="slide" onRequestClose={()=>setCreateOpen(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>New workspace</Text>
+            <Pressable onPress={()=>setCreateOpen(false)}><Icon name="x" size={21}/></Pressable>
+          </View>
+          <Text style={styles.fieldLabel}>Project name</Text>
+          <TextInput value={projectName} onChangeText={setProjectName} autoCapitalize="none" autoCorrect={false}
+            placeholder="my-new-project" placeholderTextColor="#9C999E" style={styles.field}/>
+          <Text style={styles.fieldLabel}>GitHub repository (optional)</Text>
+          <ScrollView style={styles.repoScroll} keyboardShouldPersistTaps="handled">
+            <Pressable style={styles.repoOption} onPress={()=>setRepoName('')}>
+              <Icon name="folder-plus" size={17} color="#7654C8"/>
+              <Text style={styles.repoText}>Start blank workspace</Text>
+              {!repoName&&<Icon name="check" size={17} color="#7654C8"/>}
+            </Pressable>
+            {repos.map(repo=><Pressable key={repo.full_name} style={styles.repoOption}
+              onPress={()=>{setRepoName(repo.full_name);
+                if(!projectName)setProjectName(repo.full_name.split('/')[1].replace(/[^A-Za-z0-9_-]/g,'_').replace(/^[^A-Za-z]+/,'project'));}}>
+              <Icon name={repo.private?'lock':'github'} size={17} color="#81778C"/>
+              <Text numberOfLines={1} style={styles.repoText}>{repo.full_name}</Text>
+              {repoName===repo.full_name&&<Icon name="check" size={17} color="#7654C8"/>}
+            </Pressable>)}
+            {!repos.length&&<Text style={[styles.muted,{paddingVertical:16}]}>Connect GitHub in Settings to import private repositories.</Text>}
+          </ScrollView>
+          <Pressable style={[styles.createButton,saving&&{opacity:.65}]} disabled={saving} onPress={()=>void create()}>
+            {saving?<ActivityIndicator color="#FFFFFF"/>:<Text style={styles.createText}>{repoName?'Clone project':'Create workspace'}</Text>}
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   </View>;
 }
 const styles=StyleSheet.create({
   root:{flex:1,backgroundColor:'#FCFAF7'},
+  modalOverlay:{flex:1,backgroundColor:'rgba(21,18,27,0.35)',justifyContent:'flex-end'},
+  modalSheet:{borderTopLeftRadius:26,borderTopRightRadius:26,backgroundColor:'#FCFAF7',
+    paddingHorizontal:22,paddingTop:22,paddingBottom:38,maxHeight:'85%'},
+  sheetHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:22},
+  sheetTitle:{fontSize:21,fontWeight:'700',color:'#29282B'},
+  fieldLabel:{fontSize:12.5,color:'#757178',fontWeight:'600',marginBottom:8},
+  field:{height:48,borderWidth:1,borderColor:'#E8E4DE',backgroundColor:'#FFFFFF',
+    borderRadius:13,paddingHorizontal:14,fontSize:14,color:'#29282B',marginBottom:21},
+  repoScroll:{maxHeight:240,marginBottom:20},
+  repoOption:{minHeight:49,flexDirection:'row',gap:10,alignItems:'center',paddingHorizontal:10,
+    borderBottomWidth:1,borderBottomColor:'#E9E5E0'},
+  repoText:{flex:1,color:'#29282B',fontSize:13},
+  createButton:{height:51,backgroundColor:'#242426',borderRadius:14,alignItems:'center',justifyContent:'center'},
+  createText:{color:'#FFFFFF',fontWeight:'700',fontSize:15},
   header:{height:80,paddingHorizontal:18,flexDirection:'row',alignItems:'center',gap:12},
   topControl:{height:43,width:39,justifyContent:'center',alignItems:'center'},
   headerTitle:{color:'#242326',fontWeight:'700',fontSize:25,letterSpacing:-0.8,flex:1},

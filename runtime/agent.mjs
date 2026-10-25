@@ -93,7 +93,9 @@ async function execute(dir,name,job){
   };
   child.stdout.on('data',output);child.stderr.on('data',output);
   child.once('error',e=>close(e));
-  child.once('close',code=>close(null,JSON.stringify({exitCode:code,output:text.slice(-7000)})));
+  child.once('close',code=>code===0?
+    close(null,JSON.stringify({exitCode:code,output:text.slice(-7000)})):
+    close(Error(name+' failed (exit '+code+'): '+text.slice(-2800))));
  });
 }
 const functions=[

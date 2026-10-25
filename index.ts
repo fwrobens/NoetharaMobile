@@ -3,6 +3,8 @@ import {
   Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { registerRootComponent } from 'expo';
+import { useFonts } from 'expo-font';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Important: load App *inside* a child render rather than importing it at
 // module scope. A JS error while evaluating one of its imports can then be
@@ -54,6 +56,14 @@ class BootBoundary extends React.Component<{ children: React.ReactNode }, BootSt
 }
 
 function Root() {
+  // Exporting the web bundle downloads font assets but doesn't guarantee the
+  // browser registered their @font-face definitions before drawing glyphs.
+  // Preload both icon families used by Noethara to avoid square tofu icons.
+  const [fontsLoaded, fontError] = useFonts({
+    ...Feather.font,
+    ...MaterialCommunityIcons.font,
+  });
+  if (!fontsLoaded && !fontError) return null;
   return React.createElement(
     BootBoundary,
     null,

@@ -6,7 +6,7 @@ export type AgentEvent={id:number;kind:string;message:string;at:number;ref?:stri
  status?:'running'|'done'|'failed'|'active';tool?:string;path?:string;ms?:number;output?:string};
 export type AgentPlanStep={title:string;status:'pending'|'active'|'done'};
 export type AgentChecks=Partial<Record<'install'|'typecheck'|'build'|'style'|'test'|'preview',string>>;
-export type AgentApproval={ref:string;command:string;reason:string};
+export type AgentApproval={ref:string;command:string;reason:string;expiresAt?:number};
 export type AgentMeta={plan:AgentPlanStep[];phase:string;files:string[];checks:AgentChecks;startedAt:number|null;
  checkpoints?:Array<{sha:string;label:string;at:number}>;pendingApproval?:AgentApproval|null;
  metrics?:{modelMs:number;toolMs:number;requests:number;commands:number}|null};
@@ -173,6 +173,14 @@ function ApprovalCard({approval,onApprove}:{approval:AgentApproval;onApprove?:(a
  const enter=useEntrance(0,10);
  const glow=useLoop(true,1600);
  const [sent,setSent]=useState(false);
+ const [now,setNow]=useState(Date.now());
+ useEffect(()=>{
+  if(!approval.expiresAt)return;
+  const t=setInterval(()=>setNow(Date.now()),1000);
+  return ()=>clearInterval(t);
+ },[approval.expiresAt]);
+ const remaining=approval.expiresAt?Math.max(0,Math.ceil((approval.expiresAt-now)/1000)):null;
+ const expired=remaining===0;
  const decide=(allow:boolean,always:boolean)=>{setSent(true);onApprove?.(allow,always);};
  return <Animated.View style={[styles.approval,enter]}>
   <View style={styles.approvalHead}>
@@ -183,10 +191,11 @@ function ApprovalCard({approval,onApprove}:{approval:AgentApproval;onApprove?:(a
   </View>
   <Text style={styles.approvalCmd} selectable>$ {approval.command}</Text>
   {!!approval.reason&&<Text style={styles.approvalReason}>{approval.reason}</Text>}
+  {remaining!==null&&<Text style={styles.approvalCountdown}>{expired?'Approval expired · the agent will continue with its next action':'Approval expires in '+remaining+'s · you can approve or deny below'}</Text>}
   <View style={styles.approvalRow}>
-   <Pressable disabled={sent} onPress={()=>decide(false,false)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Deny</Text></Pressable>
-   <Pressable disabled={sent} onPress={()=>decide(true,true)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Always allow</Text></Pressable>
-   <Pressable disabled={sent} onPress={()=>decide(true,false)} style={[styles.apBtn,styles.apPrimary,sent&&{opacity:0.6}]}><Text style={styles.apPrimaryText}>{sent?'Sent':'Allow'}</Text></Pressable>
+   <Pressable disabled={sent||expired} onPress={()=>decide(false,false)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Deny</Text></Pressable>
+   <Pressable disabled={sent||expired} onPress={()=>decide(true,true)} style={[styles.apBtn,styles.apGhost]}><Text style={styles.apGhostText}>Always allow</Text></Pressable>
+   <Pressable disabled={sent||expired} onPress={()=>decide(true,false)} style={[styles.apBtn,styles.apPrimary,(sent||expired)&&{opacity:0.6}]}><Text style={styles.apPrimaryText}>{sent?'Sent':'Allow'}</Text></Pressable>
   </View>
  </Animated.View>;
 }
@@ -344,6 +353,7 @@ const styles=StyleSheet.create({
  approvalTitle:{fontSize:13.5,fontWeight:'700',color:C.ink},
  approvalCmd:{fontFamily:'Menlo',fontSize:12,color:C.ink,backgroundColor:'#FFFFFF',borderRadius:10,padding:10,borderWidth:1,borderColor:'#F1E2C4'},
  approvalReason:{fontSize:12,color:C.body,lineHeight:17},
+ approvalCountdown:{fontSize:11,color:C.amber,fontWeight:'600'},
  approvalRow:{flexDirection:'row',gap:6,justifyContent:'flex-end'},
  apBtn:{paddingVertical:8,paddingHorizontal:12,borderRadius:11},
  apGhost:{backgroundColor:'#FFFFFF',borderWidth:1,borderColor:'#EDE3D2'},

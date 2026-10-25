@@ -27,11 +27,12 @@ import { AuthScreen } from './src/components/AuthScreen';
 import { LocalPlayground } from './src/components/LocalPlayground';
 import { RemoteTerminal } from './src/components/RemoteTerminal';
 import { TerminalDashboard } from './src/components/TerminalDashboard';
+import { WorkspaceFiles } from './src/components/WorkspaceFiles';
 import type { SelectedProject } from './src/lib/githubRepoContext';
 import { supabase, getSession, getPreferredModel, savePreferredModel, listConversations, recoverPendingOAuthRedirect, handleOAuthRedirect, type ConversationSummary, BEAM_ID } from './src/lib/noetharaBackend';
 import { ModelPicker } from './src/components/ModelPicker';
 
-type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground' | 'terminal';
+type Page = 'workspace' | 'terminals' | 'chat' | 'files' | 'settings' | 'playground' | 'terminal' | 'workspace-files';
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 type ToolKey = 'ESC' | '+' | 'TAB' | 'CTRL' | 'up' | 'down' | 'left' | 'right' | 'mic' | 'hide';
 
@@ -483,6 +484,7 @@ function RootApp() {
   const [activeChatId,setActiveChatId]=useState<string|null>(null);
   const [chatVersion,setChatVersion]=useState(0);
   const [terminalAgent,setTerminalAgent]=useState<'opencode'|'codex'|'claude'>('opencode');
+  const [activeWorkspaceId,setActiveWorkspaceId]=useState<string|undefined>();
   const inputRef=useRef<React.ElementRef<typeof TextInput>>(null);
   const {width:screenWidth}=useWindowDimensions();
   const drawerWidth=Math.min(screenWidth*0.79,338);
@@ -576,8 +578,8 @@ function RootApp() {
     Keyboard.dismiss();setKeyboardVisible(false);
     setPage('chat');
   };
-  const openTerminal=(agent:'opencode'|'codex'|'claude'='opencode')=>{
-    setTerminalAgent(agent);go('terminal');
+  const openTerminal=(agent:'opencode'|'codex'|'claude'='opencode',workspaceId?:string)=>{
+    setTerminalAgent(agent);setActiveWorkspaceId(workspaceId);go('terminal');
   };
   const tool=(key:ToolKey)=>{
     if(key==='hide'||key==='ESC'){Keyboard.dismiss();inputRef.current?.blur();return;}
@@ -616,8 +618,11 @@ function RootApp() {
               send={send} onTool={tool} mode={mode} setMode={setMode} provider={provider}
               setProvider={setProvider} openModelPicker={()=>setShowHomeModels(true)}
               quality={quality} setQuality={setQuality}/>}
-            {page==='terminals'&&<TerminalDashboard onBack={()=>go('workspace')} onAgent={openTerminal}/>}
-            {page==='terminal'&&<RemoteTerminal agent={terminalAgent} onBack={()=>go('terminals')}/>}
+            {page==='terminals'&&<TerminalDashboard onBack={()=>go('workspace')} onAgent={openTerminal}
+              onWorkspace={id=>{setActiveWorkspaceId(id);go('workspace-files');}}/>}
+            {page==='terminal'&&<RemoteTerminal agent={terminalAgent} workspaceId={activeWorkspaceId} onBack={()=>go('terminals')}/>}
+            {page==='workspace-files'&&activeWorkspaceId&&<WorkspaceFiles workspaceId={activeWorkspaceId}
+              onBack={()=>go('terminals')} onTerminal={()=>openTerminal('opencode',activeWorkspaceId)}/>}
             {page==='chat'&&<ConnectedChat key={chatVersion} onMenu={openDrawer}
               onSettings={()=>go('settings')} onFiles={()=>go('files')}
               latest={lastMessage} conversationId={activeChatId}

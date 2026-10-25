@@ -110,7 +110,7 @@ async function execute(dir,name,job){
   'npm install':['install','--no-audit','--no-fund'],
   'npm run build':['run','build'],
   'npm run typecheck':['run','typecheck'],
-  'npm test':['test','--','--runInBand'],
+  'npm test':['test','--','--run'],
   'npm run dev':['run','dev','--','--host','127.0.0.1'],
  };
  if(!Object.hasOwn(allowed,name))throw Error('Unsupported command; choose npm install, npm run build, npm run typecheck, npm test or npm run dev');
@@ -191,6 +191,7 @@ async function generate(job,dir,body){
  const completedActions=[];
  const started=Date.now();
  let errorsInARow=0;
+ let malformedToolReplies=0;
  event(job,'I’ll inspect the existing project, make the requested changes, then run available checks.','commentary');
  for(let round=0;round<MAX_ROUNDS;round++){
   if(job.cancelled)throw Error('Generation cancelled');
@@ -221,9 +222,24 @@ async function generate(job,dir,body){
   const calls=Array.isArray(msg.tool_calls)?msg.tool_calls.slice(0,5):[];
   const content=typeof msg.content==='string'?msg.content.trim():'';
   if(!calls.length){
-   job.answer=content||'I finished the current session. Review the workspace activity for confirmed files and commands.';
+   // Some providers incorrectly print pseudo tool JSON into chat rather than
+   // using the function-calling protocol. Correct twice; never show this as a
+   // successful tool execution or silently claim the project was modified.
+   const faux=/^\\s*(?:```(?:json)?\\s*)?[\\[{][\\s\\S]{0,350}["'](?:action|tool|function|paths)["']\\s*:/i.test(content);
+   if(faux && malformedToolReplies<2){
+    malformedToolReplies++;
+    workHistory.push([{role:'assistant',content},
+      {role:'user',content:'You returned tool instructions as plain JSON, so no operation occurred. Call the declared function tools directly (list_files/read_file/write_file/run_command/start_preview). Do not print tool-call JSON.'}]);
+    event(job,'Correcting a tool-call formatting issue…','progress');
+    continue;
+   }
+   job.answer=faux?
+    'The model returned tool instructions as text instead of executing them. No additional file changes were verified in this step. Tap Continue to retry with the available workspace tools.':
+    content||'I finished the current session. Review the workspace activity for confirmed files and commands.';
+   if(faux){job.status='paused';event(job,'The model did not execute its tool call. Continue to retry.','paused');}
    return;
   }
+  malformedToolReplies=0;
   // A model may return readable commentary before tool calls. Keep it separate
   // from tool results; never print raw tool-call JSON as user-facing dialogue.
   if(content)event(job,content.slice(0,360),'commentary');

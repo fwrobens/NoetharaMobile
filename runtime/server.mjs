@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleWorkspaceRequest, workspaceDirectory } from './workspaces.mjs';
+import { handleAgentRequest } from './agent.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || '8789');
@@ -40,6 +41,21 @@ const server = createServer(async(req,res)=>{
   if(url.pathname==='/workspaces' || url.pathname.startsWith('/workspaces/')){
     const bearer=req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
     const userId=await authenticate(bearer);
+    if(url.pathname.match(/^\/workspaces\/[\w-]+\/agent(?:\/|$)/)){
+      if(!userId){
+        res.writeHead(401,{'content-type':'application/json'});
+        res.end(JSON.stringify({error:'Not authorized'}));return;
+      }
+      try{
+        const workspaceId=url.pathname.split('/')[2];
+        const dir=await workspaceDirectory(workspaceId);
+        await handleAgentRequest(req,res,url,workspaceId,dir);
+      }catch(e){
+        res.writeHead(400,{'content-type':'application/json'});
+        res.end(JSON.stringify({error:String(e?.message||e).slice(0,250)}));
+      }
+      return;
+    }
     await handleWorkspaceRequest(req,res,url,userId);
     return;
   }
@@ -48,7 +64,7 @@ const server = createServer(async(req,res)=>{
       req.headers.authorization.slice(7) : '';
     const userId=await authenticate(bearer);
     res.writeHead(userId?200:401,{'content-type':'application/json'});
-    res.end(JSON.stringify(userId?{status:'awake',workspace:'managed',agents:[...AGENTS],
+    res.end(JSON.stringify(userId?{status:'awake',gatewayVersion:2,workspaceAPI:true,awsAgentConfigured:Boolean(process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY),workspace:'managed',agents:[...AGENTS],
       cliInstalled:Object.fromEntries([...AGENTS].map(name=>[name,isCliInstalled(name)]))}:
       {error:'Not authorized'}));
     return;

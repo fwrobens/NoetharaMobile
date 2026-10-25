@@ -38,6 +38,7 @@ export const managedWorkspace={
   list:()=>api<{workspaces:ManagedWorkspace[]}>('/workspaces'),
   create:(name:string)=>api<{workspace:ManagedWorkspace}>('/workspaces','POST',{name}),
   clone:(repo:string,name?:string)=>api<{workspace:ManagedWorkspace}>('/workspaces/clone','POST',{repo,name},true),
+  createGitHub:(name:string)=>api<{workspace:ManagedWorkspace}>('/workspaces/github-create','POST',{name,approved:true},true),
   listFiles:(id:string,path='')=>api<{workspace:string;path:string;entries:ManagedEntry[]}>(
     '/workspaces/'+p(id)+'/files?path='+p(path)),
   readFile:(id:string,path:string)=>api<{path:string;content:string;sha256:string}>(

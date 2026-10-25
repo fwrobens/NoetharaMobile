@@ -143,6 +143,15 @@ export async function servePreview(req,res,url){
  return true;
 }
 
+// Exported for a regression test against an actual WebSocket server.
+export function connectViteHmrUpstream(port,url){
+ if(!Number.isInteger(port)||port<1||port>65535)throw Error('Invalid preview port');
+ if(!url?.pathname?.startsWith('/preview/'))throw Error('Invalid Vite preview socket path');
+ return new WebSocket('ws://127.0.0.1:'+port+url.pathname+url.search,'vite-hmr',{
+   headers:{host:'127.0.0.1:'+port}
+ });
+}
+
 const previewSockets=new WebSocketServer({noServer:true});
 export function handlePreviewUpgrade(req,socket,head){
  const url=new URL(req.url||'/', 'http://localhost');
@@ -162,9 +171,7 @@ export function handlePreviewUpgrade(req,socket,head){
    .split(',').map(value=>value.trim());
  if(!protocols.includes('vite-hmr')){socket.destroy();return;}
  previewSockets.handleUpgrade(req,socket,head,client=>{
-   const upstream=new WebSocket('ws://127.0.0.1:'+preview.port+url.pathname+url.search,'vite-hmr',{
-     headers:{host:'127.0.0.1:'+preview.port}
-   });
+   const upstream=connectViteHmrUpstream(preview.port,url);
    client.on('message',(data,isBinary)=>{
      if(upstream.readyState===WebSocket.OPEN)upstream.send(data,{binary:isBinary});
    });

@@ -35,7 +35,7 @@ export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()
   const terminalRef=useRef<TerminalEmulatorHandle>(null);
   const terminalReady=useRef(false);
   const bufferedOutput=useRef('');
-  const dimensions=useRef({cols:80,rows:24});
+  const dimensions=useRef({cols:40,rows:25});
   // Preserve raw VT sequences. xterm renders full-screen TUI redraws correctly.
   const append=(message:string)=>{
     setHasOutput(true);
@@ -236,9 +236,10 @@ export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()
           </View>
         </View>}
       </View>
+      {/* Compact runtime state; prioritize the terminal viewport on phone. */}
       <View style={styles.terminalFooter}>
-        <View style={styles.footerIndicator}/>
-        <Text style={styles.footerLabel}>{connected?'Connected to Linux runtime':'Workspace offline'}</Text>
+        <View style={[styles.footerIndicator,{backgroundColor:connected?COLORS.success:'#B4AFB5'}]}/>
+        <Text style={styles.footerLabel} numberOfLines={1}>{connected?'Live shell':'Offline'}</Text>
         <Text style={styles.footerLabel}>UTF-8</Text>
       </View>
     </View>
@@ -246,9 +247,9 @@ export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.keyStrip}>
         {([
-          {label:'esc',data:'\x1b'}, {label:'tab',data:'\t'}, {label:'ctrl+c',data:'\x03'},
+          {label:'enter ↵',data:'\r'}, {label:'esc',data:'\x1b'}, {label:'tab',data:'\t'}, {label:'ctrl+c',data:'\x03'},
           {label:'↑',data:'\x1b[A'}, {label:'↓',data:'\x1b[B'},
-          {label:'←',data:'\x1b[D'}, {label:'→',data:'\x1b[C'}, {label:'enter',data:'\r'},
+          {label:'←',data:'\x1b[D'}, {label:'→',data:'\x1b[C'},
         ]).map(key=><Pressable key={key.label} onPress={()=>sendKey(key.data)}
           disabled={!connected} style={[styles.key,!connected&&styles.disabledKey]}>
           <Text style={styles.keyText}>{key.label}</Text>
@@ -261,10 +262,10 @@ export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()
           returnKeyType="send" editable={connected}
           placeholder={connected?'Type a command…':'Noethara workspace offline'}
           placeholderTextColor="#9A969D" style={styles.input}/>
-        <Pressable onPress={sendText} disabled={!connected||!input.length}
-          style={[styles.sendButton,(!connected||!input.length)&&styles.disabledSend]}>
+        <Pressable onPress={()=>input.trim()?sendText():sendKey('\r')} disabled={!connected}
+          style={[styles.sendButton,!connected&&styles.disabledSend]}>
           <Glyph name="arrow-up" size={19}
-            color={connected&&input?'#FFFFFF':'#9A959E'}/>
+            color={connected?'#FFFFFF':'#9A959E'}/>
         </Pressable>
       </View>
     </View>
@@ -273,7 +274,7 @@ export function RemoteTerminal({agent,onBack,workspaceId}:{agent:Agent;onBack:()
 
 const styles=StyleSheet.create({
   root:{flex:1,backgroundColor:COLORS.bg},
-  topBar:{height:71,flexDirection:'row',alignItems:'center',paddingHorizontal:12,gap:9},
+  topBar:{height:59,flexDirection:'row',alignItems:'center',paddingHorizontal:12,gap:9},
   iconButton:{width:37,height:40,alignItems:'center',justifyContent:'center',borderRadius:12},
   titleBlock:{flex:1,gap:3},
   title:{color:COLORS.text,fontSize:19,fontWeight:'700',letterSpacing:-0.35},
@@ -282,14 +283,12 @@ const styles=StyleSheet.create({
     borderRadius:11,backgroundColor:'#F3F1ED',borderWidth:1,borderColor:'#E7E3DD'},
   statusDot:{width:7,height:7,borderRadius:5},
   statusLabel:{color:'#777379',fontSize:11,fontWeight:'600'},
-  terminalFrame:{flex:1,marginHorizontal:8,marginBottom:8,borderWidth:1,borderColor:'#E6E2DB',
-    borderRadius:19,overflow:'hidden',backgroundColor:COLORS.terminal,
-    shadowColor:'#7E736F',shadowOpacity:0.045,shadowOffset:{width:0,height:5},shadowRadius:16,elevation:1},
-  terminalChrome:{height:42,backgroundColor:'#F7F5F1',borderBottomWidth:1,borderColor:'#EAE5DF',
+  terminalFrame:{flex:1,marginHorizontal:0,marginBottom:3,overflow:'hidden',backgroundColor:'#141416'},
+  terminalChrome:{height:29,backgroundColor:'#1E1D21',borderBottomWidth:1,borderColor:'#39363B',
     flexDirection:'row',alignItems:'center',gap:11,paddingHorizontal:14},
   chromeDots:{flexDirection:'row',gap:6},
   chromeDot:{width:8,height:8,borderRadius:6},
-  chromeTitle:{flex:1,textAlign:'center',fontSize:11.5,color:'#918D92',fontWeight:'500'},
+  chromeTitle:{flex:1,textAlign:'center',fontSize:10.5,color:'#C8C0CC',fontWeight:'500'},
   chromeAction:{width:28,height:28,alignItems:'flex-end',justifyContent:'center'},
   terminalViewport:{flex:1,position:'relative',backgroundColor:'#141416',minHeight:0},
   overlay:{position:'absolute',left:0,right:0,top:0,bottom:0,
@@ -314,11 +313,11 @@ const styles=StyleSheet.create({
   errorRow:{padding:12,backgroundColor:'#FFF5F0',borderWidth:1,
     borderColor:'#F0DEDA',borderRadius:11,flexDirection:'row',gap:9,alignItems:'flex-start'},
   errorText:{color:'#AE6257',fontSize:12,lineHeight:18,flex:1},
-  terminalFooter:{height:33,borderTopWidth:1,borderColor:'#EBE7E0',
-    flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:14,backgroundColor:'#F9F7F4'},
+  terminalFooter:{height:22,borderTopWidth:1,borderColor:'#39363B',
+    flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:10,backgroundColor:'#1E1D21'},
   footerIndicator:{height:6,width:6,borderRadius:4,backgroundColor:'#B4AFB5'},
-  footerLabel:{color:'#918C92',fontSize:10,fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
-  commandBar:{paddingHorizontal:8,paddingBottom:7,gap:8},
+  footerLabel:{color:'#B1AAB5',fontSize:10,fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},
+  commandBar:{paddingHorizontal:8,paddingTop:5,paddingBottom:7,gap:8},
   keyStrip:{flexDirection:'row',gap:7,paddingBottom:1,paddingHorizontal:1},
   key:{height:36,minWidth:45,borderRadius:9,backgroundColor:'#FFFFFF',
     borderWidth:1,borderColor:'#E6E1DB',

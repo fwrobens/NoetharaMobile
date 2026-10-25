@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
 import {
-  noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry,
+  noetharaAPI, persistChat, getSession, loadConversation, type ChatEntry, type GithubProposedEdit,
 } from '../lib/noetharaBackend';
 import type { SelectedGitHubFile } from './NoetharaIntegrations';
 import { ModelPicker, useModelPreference } from './ModelPicker';
@@ -46,6 +46,9 @@ export function ConnectedChat({
   const [messages,setMessages]=useState<ChatEntry[]>(latest?[{role:'user',content:latest}]:[]);
   const [prompt,setPrompt]=useState('');
   const [thinking,setThinking]=useState(false);
+  const [pendingEdits,setPendingEdits]=useState<GithubProposedEdit[]>([]);
+  const [reviewEdit,setReviewEdit]=useState<GithubProposedEdit|null>(null);
+  const [savingEdit,setSavingEdit]=useState(false);
   const [status,setStatus]=useState('');
   const [isError,setIsError]=useState(false);
   const [loadingHistory,setLoadingHistory]=useState(Boolean(conversationId));
@@ -84,6 +87,15 @@ export function ConnectedChat({
   };
   async function buildRequest(next:ChatEntry[], instruction:string, modelId:string) {
     let contextWarning='';
+    if(attachedProject){
+      try{
+        const result=await noetharaAPI.agent(next,attachedProject,modelId);
+        return {result,contextWarning,edits:result.edits||[]};
+      }catch(e){
+        // Older provider endpoints may lack tool calling; preserve normal chat.
+        contextWarning='Project tools unavailable; falling back to read-only GitHub context. ';
+      }
+    }
     let history=next.slice(-18);
     if(attachedProject){
       try {
@@ -106,7 +118,7 @@ export function ConnectedChat({
       result=await noetharaAPI.chat(safe,undefined,modelId);
       contextWarning+='GitHub file could not be loaded; response is not based on that file. ';
     }
-    return {result,contextWarning};
+    return {result,contextWarning,edits:[] as GithubProposedEdit[]};
   }
   async function saveMessage(id:string|null,entry:ChatEntry):Promise<string|null>{
     try{
@@ -126,7 +138,8 @@ export function ConnectedChat({
     try{
       const session=await getSession();
       if(!session)throw Error('Sign in before sending prompts.');
-      const {result,contextWarning}=await buildRequest(next,first,initialModel||model);
+      const {result,contextWarning,edits}=await buildRequest(next,first,initialModel||model);
+      if(mounted.current)setPendingEdits(edits);
       if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages([...next,answer]);
@@ -144,7 +157,8 @@ export function ConnectedChat({
     setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);output('',false);
     const id=await saveMessage(chatId,userEntry);
     try{
-      const {result,contextWarning}=await buildRequest(next,text,model);
+      const {result,contextWarning,edits}=await buildRequest(next,text,model);
+      if(mounted.current)setPendingEdits(edits);
       if(!mounted.current)return;
       const answer:ChatEntry={role:'assistant',content:result.answer};
       setMessages(prev=>[...prev,answer]);
@@ -153,6 +167,22 @@ export function ConnectedChat({
     }catch(err){
       output(err instanceof Error?err.message:'Unable to contact AI provider.',true);
     }finally{if(mounted.current)setThinking(false);}
+  }
+  function approve(edit:GithubProposedEdit){
+    Alert.alert('Commit to GitHub','This will update '+edit.repo+'/'+edit.path+' on '+edit.branch+'. Review the complete replacement before proceeding.',[
+      {text:'Cancel',style:'cancel'},
+      {text:'Commit update',onPress:()=>void (async()=>{
+        setSavingEdit(true);
+        try{
+          const result=await noetharaAPI.applyEdit(edit,'Update '+edit.path+' via Noethara');
+          setPendingEdits(current=>current.filter(item=>item!==edit));
+          setReviewEdit(null);
+          const note='Committed '+edit.path+' to '+edit.repo+' ('+(result.commit?.slice(0,8)||'updated')+').';
+          output(note,false);
+        }catch(e){Alert.alert('GitHub commit failed',e instanceof Error?e.message:'Please try again.');}
+        finally{setSavingEdit(false);}
+      })()}
+    ]);
   }
   return <View style={styles.root}>
     <View style={styles.header}>
@@ -179,6 +209,13 @@ export function ConnectedChat({
         <ActivityIndicator color={PURPLE} size="small"/>
         <Text style={styles.thinkingText}>Thinking…</Text>
       </View>}
+      {pendingEdits.map((edit,i)=><Pressable key={edit.path+'-'+i}
+        onPress={()=>setReviewEdit(edit)} style={styles.proposalCard}>
+        {Icon('file-plus',18,PURPLE)}
+        <View style={{flex:1}}><Text style={styles.proposalTitle} numberOfLines={1}>Review proposed edit</Text>
+        <Text style={styles.proposalPath} numberOfLines={1}>{edit.path}</Text></View>
+        {Icon('chevron-right',17,MUTED)}
+      </Pressable>)}
       {!!status&&<Text style={[styles.status,isError&&styles.error]}>{status}</Text>}
     </ScrollView>
     <View style={styles.composerDock}>
@@ -213,11 +250,48 @@ export function ConnectedChat({
         </View>
       </LinearGradient>
     </View>
+    <Modal visible={Boolean(reviewEdit)} animationType="slide" transparent onRequestClose={()=>setReviewEdit(null)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.reviewSheet}>
+          <View style={styles.reviewHeader}>
+            <Text style={styles.reviewTitle}>Review file change</Text>
+            <Pressable onPress={()=>setReviewEdit(null)} accessibilityLabel="Close review">{Icon('x',22)}</Pressable>
+          </View>
+          <Text style={styles.reviewPath} numberOfLines={2}>{reviewEdit?.repo} / {reviewEdit?.path}</Text>
+          {!!reviewEdit?.description&&<Text style={styles.reviewDescription}>{reviewEdit.description}</Text>}
+          <ScrollView style={styles.reviewSource}>
+            <Text selectable style={styles.reviewCode}>{reviewEdit?.content}</Text>
+          </ScrollView>
+          <Text style={styles.reviewNotice}>This is a complete file replacement, not an automatic edit. The existing GitHub file is checked for changes before committing.</Text>
+          <Pressable disabled={savingEdit} onPress={()=>reviewEdit&&approve(reviewEdit)} style={[styles.reviewCommit,savingEdit&&{opacity:.6}]}>
+            {savingEdit?<ActivityIndicator color="#FFFFFF"/>:<Text style={styles.reviewCommitText}>Approve & commit</Text>}
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
     <ModelPicker visible={modelPickerOpen} selected={model} onSelect={setModel} onClose={()=>setModelPickerOpen(false)}/>
   </View>;
 }
 const styles=StyleSheet.create({
   root:{flex:1,backgroundColor:'#FCFAF7'},
+  proposalCard:{marginTop:11,padding:14,backgroundColor:'#F5F1FB',borderRadius:14,
+    flexDirection:'row',gap:11,alignItems:'center',borderWidth:1,borderColor:'#E9E1F0'},
+  proposalTitle:{fontSize:13,fontWeight:'700',color:INK},
+  proposalPath:{fontSize:11.5,color:MUTED,marginTop:4},
+  modalOverlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(24,20,28,.35)'},
+  reviewSheet:{backgroundColor:'#FCFAF7',borderTopLeftRadius:25,borderTopRightRadius:25,
+    padding:22,paddingBottom:37,maxHeight:'88%'},
+  reviewHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
+  reviewTitle:{fontSize:19,fontWeight:'700',color:INK},
+  reviewPath:{fontSize:12.5,color:PURPLE,marginTop:14},
+  reviewDescription:{fontSize:12.5,color:MUTED,marginTop:9,lineHeight:18},
+  reviewSource:{maxHeight:360,backgroundColor:'#FFFFFF',borderWidth:1,borderColor:'#E9E4E0',
+    borderRadius:14,marginVertical:17,padding:12},
+  reviewCode:{fontSize:11.5,lineHeight:17,color:'#39353A',fontFamily:'monospace'},
+  reviewNotice:{fontSize:11,color:MUTED,lineHeight:17,marginBottom:14},
+  reviewCommit:{height:50,backgroundColor:'#262329',borderRadius:14,
+    justifyContent:'center',alignItems:'center'},
+  reviewCommitText:{color:'#FFFFFF',fontWeight:'700',fontSize:14},
   header:{height:70,paddingHorizontal:18,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
   headerButton:{padding:8},headerCenter:{flexDirection:'row',gap:9,alignItems:'center'},
   connectedDot:{width:10,height:10,borderRadius:10,backgroundColor:'#27C565'},

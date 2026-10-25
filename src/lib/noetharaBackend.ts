@@ -279,6 +279,14 @@ async function callAPI<T>(path: string, options: {
   if (!res.ok) throw Error(data.error ?? ('Backend HTTP ' + res.status));
   return data as T;
 }
+export type GithubProposedEdit={
+  repo:string;branch:string;path:string;content:string;
+  sha:string|null;description:string;
+};
+export type GithubAgentAnswer={
+  answer:string;model:string;provider:string;usage:unknown;
+  fallbackUsed:boolean;edits:GithubProposedEdit[];toolEvents:string[];
+};
 export const noetharaAPI = {
   status: () => callAPI<{ auth: boolean; beam: boolean; nvidia: boolean; fallback: boolean }>('/status'),
   models: () => callAPI<AIModelsResponse>('/models'),
@@ -290,6 +298,16 @@ export const noetharaAPI = {
       method:'POST',
       payload:{ messages: messages.slice(-20), ...(context ? { context } : {}), ...(model ? { model } : {}) },
       github: Boolean(context), githubOptional: true,
+    }),
+  agent: (messages:ChatEntry[],project:{repo:string;branch:string},model:string) =>
+    callAPI<GithubAgentAnswer>('/agent',{
+      method:'POST',github:true,
+      payload:{messages:messages.slice(-15),repo:project.repo,branch:project.branch,model},
+    }),
+  applyEdit: (edit:GithubProposedEdit,message:string) =>
+    callAPI<{committed:boolean;commit:string|null;repo:string;branch:string;path:string}>('/github/apply',{
+      method:'POST',github:true,
+      payload:{...edit,approved:true,message}
     }),
   repos: () => callAPI<{ repos: Repo[] }>('/github/repos', { github: true }),
   contents: (repo: string, path: string, branch: string) =>

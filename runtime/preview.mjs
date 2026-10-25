@@ -3,6 +3,7 @@
 // Never add user-supplied domains, ports or filesystem paths to this proxy.
 import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
+import { WebSocketServer, WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -96,4 +97,33 @@ export async function servePreview(req,res,url){
  });
  req.pipe(upstream);
  return true;
+}
+
+const previewSockets=new WebSocketServer({noServer:true});
+export function handlePreviewUpgrade(req,socket,head){
+ const url=new URL(req.url||'/', 'http://localhost');
+ const fragments=url.pathname.split('/').filter(Boolean);
+ const id=fragments[1];
+ const preview=previews.get(id);
+ if(fragments[0]!=='preview'||!isValidId(id)||!preview||preview.child.exitCode!==null){
+   socket.destroy();return;
+ }
+ const authorized=String(req.headers.cookie||'').split(';')
+   .map(value=>value.trim()).includes('nprev_'+id+'='+preview.secret);
+ if(!authorized){socket.destroy();return}
+ previewSockets.handleUpgrade(req,socket,head,client=>{
+   const upstream=new WebSocket('ws://127.0.0.1:'+preview.port+url.pathname+url.search,{
+     headers:{host:'127.0.0.1:'+preview.port}
+   });
+   client.on('message',(data,isBinary)=>{
+     if(upstream.readyState===WebSocket.OPEN)upstream.send(data,{binary:isBinary});
+   });
+   upstream.on('message',(data,isBinary)=>{
+     if(client.readyState===WebSocket.OPEN)client.send(data,{binary:isBinary});
+   });
+   client.on('close',()=>upstream.close());
+   upstream.on('close',()=>client.close());
+   client.on('error',()=>upstream.close());
+   upstream.on('error',()=>client.close());
+ });
 }

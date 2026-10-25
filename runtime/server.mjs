@@ -17,7 +17,7 @@ import { servePreview, handlePreviewManagement, handlePreviewUpgrade } from './p
 
 // Only the dedicated browser client may make cross-origin authenticated API calls.
 // Origin grants browser access, not authorization: Supabase JWT checks still apply.
-const BROWSER_ORIGINS = new Set(['https://noethara-mobile-web.pages.dev']);
+const BROWSER_ORIGINS = new Set(['https://noethara-mobile-web.pages.dev', 'https://app.noethara.cloud']);
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || '8789');
 const SUPABASE_URL = (process.env.NOETHARA_SUPABASE_URL || '').replace(/\/$/,'');

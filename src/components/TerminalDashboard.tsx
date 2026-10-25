@@ -44,6 +44,10 @@ export function TerminalDashboard({onBack,onAgent,onWorkspace}:{
         if(r.ok){
           const payload=await r.json() as {cliInstalled?:Partial<Record<Agent,boolean>>};
           setCliInstalled(payload.cliInstalled||null);
+          if(payload.workspaceAPI!==true){
+            setMessage('AWS is running an older terminal gateway. Update the EC2 NoetharaMobile repository and restart noethara-runtime to enable file workspaces.');
+            setProjects([]);setState('offline');return;
+          }
           setState('awake');
           try{setProjects((await managedWorkspace.list()).workspaces);}catch{setProjects([]);}
           return;

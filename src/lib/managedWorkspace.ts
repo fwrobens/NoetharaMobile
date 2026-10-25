@@ -51,6 +51,14 @@ export const managedWorkspace={
     '/workspaces/'+p(id)+'/file?path='+p(path)),
   saveFile:(id:string,path:string,content:string,expectedSha256:string)=>api<{saved:boolean;path:string}>(
     '/workspaces/'+p(id)+'/file','PUT',{path,content,expectedSha256}),
+  startAgent:(id:string,messages:Array<{role:'user'|'assistant';content:string}>,model:string)=>
+    api<{jobId:string;status:string}>('/workspaces/'+p(id)+'/agent','POST',{messages,model}),
+  agentStatus:(id:string,jobId:string)=>
+    api<{jobId:string;status:'running'|'completed'|'failed';answer:string;error:string;
+      events:Array<{id:number;kind:string;message:string;at:number}>}>(
+      '/workspaces/'+p(id)+'/agent/'+p(jobId)),
+  cancelAgent:(id:string,jobId:string)=>api<{cancelled:boolean}>(
+      '/workspaces/'+p(id)+'/agent/'+p(jobId)+'/cancel','POST',{}),
   status:(id:string)=>api<{workspace:string;changes:string}>('/workspaces/'+p(id)+'/git-status'),
   review:(id:string)=>api<{status:string;diff:string;staged:string}>('/workspaces/'+p(id)+'/git-review'),
   push:(id:string,message:string)=>api<{published:boolean;repo:string;branch:string;files:string[]}>(

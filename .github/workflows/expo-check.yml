@@ -27,7 +27,7 @@ jobs:
       - name: Managed workspace API tests
         run: node --test runtime/workspaces.test.mjs
       - name: Runtime syntax checks
-        run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs
+        run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs && node --check runtime/agent.mjs && node --check runtime/preview.mjs
       - name: TypeScript check
         run: npm run typecheck
       - name: Verify iOS JavaScript bundle compiles

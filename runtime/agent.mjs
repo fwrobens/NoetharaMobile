@@ -1,7 +1,7 @@
 // Persistent owner-only coding jobs for NoetharaMobile.
 // Jobs remain on the existing private AWS gateway, not in Expo or on the phone.
 // BEFORE multi-tenant rollout, place every job in an isolated container/VM.
-import { readFile, writeFile, mkdir, readdir, lstat, rename, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, lstat, rename, rmdir } from 'node:fs/promises';
 import { resolve, dirname, relative, join, sep, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -98,7 +98,7 @@ export async function recoverNestedProject(dir){
   catch(e){if(e.code!=='ENOENT')throw e}
   await rename(join(nested,entry.name),dest);moved.push(entry.name);
  }
- if(skipped.length===0)await rm(nested,{recursive:false}).catch(e=>{if(e.code!=='ENOTEMPTY')throw e});
+ if(skipped.length===0)await rmdir(nested).catch(e=>{if(e.code!=='ENOTEMPTY')throw e});
  return {moved,skipped};
 }
 async function execute(dir,name,job){

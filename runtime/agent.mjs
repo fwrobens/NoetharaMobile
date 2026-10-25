@@ -18,6 +18,7 @@ import { chooseAgentProvider, completionRequest } from './providers.mjs';
 import { inspectQuality, summarizeCritique } from './orchestration.mjs';
 import { checkWebStyling } from './project-health.mjs';
 import { invalidateChecks, recordCheck, reconcilePlan } from './agent-checks.mjs';
+import { assertNoDuplicatePreview, npmTestAvailable } from './agent-shell-guards.mjs';
 import { discoverTools, callTool, serverReady } from './mcp/client.mjs';
 import { sandboxStatus, classifyCommand, isRemembered, rememberAllow, runShell, startProcess, processLogs, stopProcess, listProcesses } from './sandbox.mjs';
 
@@ -145,6 +146,14 @@ function streamOutput(job,text){
  if(live){live.output=String(text).slice(-700);live.at=now;scheduleSave(job)}
 }
 // Ask the user before a sandbox command runs (permission mode 'ask').
+// The old ten-minute wait caused the exact 600-second failed shell operations
+// seen in the teststress job report. Do not leave background jobs stalled.
+export function approvalTimeoutMs(env=process.env){
+ const requested=Number(env.NOETHARA_APPROVAL_TIMEOUT_MS);
+ return Number.isFinite(requested)&&requested>0
+  ?Math.min(120000,Math.max(1000,requested))
+  :60000;
+}
 function requestApproval(job,command,reason){
  return new Promise(resolve=>{
   const ref=randomUUID().slice(0,8),since=Date.now(),phase=job.phase;
@@ -152,17 +161,18 @@ function requestApproval(job,command,reason){
   job.phase='awaiting_approval';
   event(job,'Waiting for your approval: '+String(command).slice(0,90),'progress');
   saveJobNow(job);
-  const done=allow=>{
+  const done=(allow,reason='response')=>{
    clearTimeout(timer);clearInterval(watcher);
    job._approve=undefined;job.pendingApproval=null;job.phase=phase;
    job._waitedMs=(job._waitedMs||0)+(Date.now()-since);
-   event(job,(allow?'Approved: ':'Denied: ')+String(command).slice(0,90),allow?'result':'progress');
-   resolve(allow);
+   const outcome=allow?'Approved':reason==='timeout'?'Approval expired':reason==='cancel'?'Cancelled':'Denied';
+   event(job,outcome+': '+String(command).slice(0,90),allow?'result':'progress');
+   resolve({allow,reason});
   };
-  const timer=setTimeout(()=>done(false),10*60*1000);
-  const watcher=setInterval(()=>{if(job.cancelled)done(false)},800);
+  const timer=setTimeout(()=>done(false,'timeout'),approvalTimeoutMs());
+  const watcher=setInterval(()=>{if(job.cancelled)done(false,'cancel')},800);
   timer.unref?.();watcher.unref?.();
-  job._approve=done;
+  job._approve=allow=>done(Boolean(allow));
  });
 }
 async function authorize(job,command){
@@ -171,7 +181,11 @@ async function authorize(job,command){
  const verdict=classifyCommand(command);
  if(verdict.decision==='deny')throw Error(verdict.reason);
  if(mode==='auto'||verdict.decision==='allow'||isRemembered(STATE_DIR,job.workspaceId,command))return true;
- if(!await requestApproval(job,command))throw Error('The user denied: '+command+'. Use a different approach, or explain in your final answer why it is needed.');
+ const answer=await requestApproval(job,command);
+ if(!answer.allow){
+  if(answer.reason==='timeout')throw Error('Command approval expired after '+Math.round(approvalTimeoutMs()/1000)+'s. Do not repeat the same command. Use built-in verify_project/start_preview tools, or resume with approved sandbox permissions.');
+  throw Error(answer.reason==='cancel'?'Command cancelled':'The user denied: '+command+'. Use a different approach, or explain in your final answer why it is needed.');
+ }
  return true;
 }
 // Recursive project tree (bounded) so the model sees the structure in one call.
@@ -345,6 +359,10 @@ async function execute(dir,name,job){
  }
  try{const stat=await lstat(join(dir,'package.json'));if(!stat.isFile()||stat.isSymbolicLink())throw Error('Invalid package.json')}
  catch(e){if(e.code==='ENOENT')throw Error('npm cannot run: package.json is missing from workspace root. Write package.json (not workspace-name/package.json) before running npm.');throw e}
+ if(name==='npm test'){
+  const manifest=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
+  if(!npmTestAvailable(manifest))return JSON.stringify({exitCode:0,skipped:true,output:'No test script in package.json. Skipping npm test; typecheck/build remain required.'});
+ }
  return await new Promise((resolve,reject)=>{
   let text='',finished=false;
   const child=spawn('npm',allowed[name],{
@@ -478,6 +496,12 @@ const displayAction=(name,args={})=>{
  if(name==='use_mcp_tool')return {kind:'read',phase:'reading',message:'Researching '+String(args.server||'MCP')+'/'+String(args.name||'tool')};
  return {kind:'progress',phase:'thinking',message:'Working with project tools'};
 };
+async function guardManagedPreview(dir,command){
+ const pkg=await readFile(join(dir,'package.json'),'utf8').catch(()=>'{}');
+ let manifest={};
+ try{manifest=JSON.parse(pkg)}catch{}
+ assertNoDuplicatePreview(command,manifest);
+}
 async function action(dir,name,arg,job){
  if(name==='update_plan')return setPlan(job,arg.steps);
  if(name==='list_files')return await listFiles(dir,String(arg.path||''));
@@ -520,12 +544,13 @@ async function action(dir,name,arg,job){
     if(!style.ok){recordCheck(job,'style','failed');throw Error('Unstyled Vite build: '+style.reason);}
     recordCheck(job,'style','passed');
    }
-   recordCheck(job,key,'passed');
+   recordCheck(job,key,key==='test'&&JSON.parse(out).skipped?'skipped':'passed');
    return out;
   }catch(e){recordCheck(job,key,'failed');throw e}
  }
  if(name==='run_shell'){
   const command=String(arg.command||'').trim();
+  await guardManagedPreview(dir,command);
   await authorize(job,command);
   const r=await runShell(job.workspaceId,dir,command,{timeoutSec:arg.timeout_seconds,onOutput:t=>streamOutput(job,t)});
   const m=/^npm run (build|typecheck)$|^npm (test)\b|^npm (install|i)\b/.exec(command);
@@ -541,7 +566,7 @@ async function action(dir,name,arg,job){
   if(r.exitCode!==0&&!/^(?:ls|cat|grep|rg|find|git)\b/.test(command))job.dirty=true;
   return JSON.stringify({exitCode:r.exitCode,timedOut:Boolean(r.timedOut),output:r.output});
  }
- if(name==='start_process'){const command=String(arg.command||'').trim();await authorize(job,command);return await startProcess(job.workspaceId,dir,String(arg.name||''),command)}
+ if(name==='start_process'){const command=String(arg.command||'').trim();await guardManagedPreview(dir,command);await authorize(job,command);return await startProcess(job.workspaceId,dir,String(arg.name||''),command)}
  if(name==='process_logs')return await processLogs(job.workspaceId,dir,String(arg.name||''));
  if(name==='stop_process')return await stopProcess(job.workspaceId,dir,String(arg.name||''));
  if(name==='list_processes')return await listProcesses(job.workspaceId,dir);

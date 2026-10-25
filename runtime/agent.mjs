@@ -747,7 +747,18 @@ async function generate(job,dir,body){
      continue;
     }
    }
-   job.plan=job.plan.map(s=>s.status==='active'?{...s,status:job.dirty?'pending':'done'}:s);
+   const currentFrontEnd=await readFile(join(dir,'package.json'),'utf8')
+     .then(pkg=>/"vite"/.test(pkg),()=>frontEnd);
+   const pending=inspectQuality(job,{frontend:currentFrontEnd,vision:vision.screenshots});
+   if(pkgNow&&changed&&pending.stage!=='ready'){
+    // A model saying "done" is not evidence. Stop rather than telling the
+    // user an unfinished build passed after the retry budget is exhausted.
+    job.status='paused';job.phase='paused';
+    job.answer='The agent paused with an unfinished '+pending.stage+' stage. Files and logs are saved. Tap Continue to finish the missing checks or fixes.';
+    event(job,'Verification incomplete: '+pending.instruction,'paused');
+    return;
+   }
+   reconcilePlan(job);
    job.answer=content||'I finished this session. The activity log lists every confirmed file change and check.';
    if(job.dirty||job.checks.build==='failed'||job.checks.typecheck==='failed')
     job.answer+='\n\nVerification is incomplete or failed. Do not treat this as a passing build.';

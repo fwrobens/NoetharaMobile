@@ -50,9 +50,14 @@ export async function onRequest({ request }) {
     const result = new Response(noBody ? null : response.body, response);
     result.headers.set('cache-control', 'private, no-store');
     result.headers.set('x-content-type-options', 'nosniff');
-    // A generated app should not be able to frame or expose other pages.
+    // Generated application HTML runs on the Pages origin behind this proxy.
+    // Without an enforced CSP sandbox, its scripts could read the Noethara
+    // SPA's same-origin storage and initiate authenticated actions.  CSP
+    // sandbox (without allow-same-origin) assigns a unique opaque origin even
+    // if someone opens the preview in a new top-level tab. Do not remove it.
+    // Keep script execution and forms for interactive Vite previews.
     result.headers.set('content-security-policy',
-      "frame-ancestors 'self'; object-src 'none'");
+      "sandbox allow-scripts allow-forms; frame-ancestors 'self'; object-src 'none'; base-uri 'none'");
     return result;
   } catch {
     return new Response('Preview proxy temporarily unavailable', {

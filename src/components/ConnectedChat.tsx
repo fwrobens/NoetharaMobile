@@ -63,6 +63,7 @@ export function ConnectedChat({
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const [attachments,setAttachments]=useState<ChatAttachment[]>([]);
   const [workspaceStatus,setWorkspaceStatus]=useState('');
+  const [agentSteps,setAgentSteps]=useState<Array<{kind:string;message:string}>>([]);
   const [previewUrl,setPreviewUrl]=useState<string|null>(null);
   const [previewLoading,setPreviewLoading]=useState(false);
   const [agentBusy,setAgentBusy]=useState(false);
@@ -135,7 +136,11 @@ export function ConnectedChat({
           await delay(1200);
           const update=await managedWorkspace.agentStatus(active,started.jobId);
           const last=update.events.at(-1)?.message||'Coding in '+active+'…';
-          if(mounted.current)setWorkspaceStatus(last);
+          if(mounted.current){
+            setWorkspaceStatus(last);
+            setAgentSteps(update.events.filter(e=>e.kind==='tool'||e.kind==='result'||e.kind==='error')
+              .slice(-5).map(e=>({kind:e.kind,message:e.message.slice(0,150)})));
+          }
           if(update.status==='completed')return {
             result:{answer:update.answer||'Project files were generated in '+active+'.',provider:'AWS workspace agent',model:resolvedModel,fallbackUsed:false},
             contextWarning:'',edits:[] as GithubProposedEdit[]
@@ -212,7 +217,7 @@ export function ConnectedChat({
     if(!text||thinking||loadingHistory)return;
     const userEntry:ChatEntry={role:'user',content:text};
     const next:ChatEntry[]=[...messages,userEntry];
-    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);output('',false);
+    setMessages(next);setPrompt('');Keyboard.dismiss();setThinking(true);setAgentSteps([]);output('',false);
     const id=await saveMessage(chatId,userEntry);
     try{
       const {result,contextWarning,edits}=await buildRequest(next,text,model);
@@ -281,6 +286,14 @@ export function ConnectedChat({
       {thinking&&<View style={styles.thinking}>
         <ActivityIndicator color={PURPLE} size="small"/>
         <Text style={styles.thinkingText}>{workspaceStatus||'Thinking…'}</Text>
+      </View>}
+      {agentSteps.length>0&&<View style={styles.agentActivity}>
+        <View style={styles.agentHeading}>{Icon('activity',15,PURPLE)}
+          <Text style={styles.agentActivityTitle}>Workspace activity</Text></View>
+        {agentSteps.map((step,i)=><View key={i} style={styles.agentActivityLine}>
+          {Icon(step.kind==='error'?'alert-circle':'check-circle',13,step.kind==='error'?'#B97567':'#7E62B9')}
+          <Text style={styles.agentActivityText} numberOfLines={2}>{step.message}</Text>
+        </View>)}
       </View>}
       {pendingEdits.map((edit,i)=><Pressable key={edit.path+'-'+i}
         onPress={()=>setReviewEdit(edit)} style={styles.proposalCard}>
@@ -402,6 +415,12 @@ const styles=StyleSheet.create({
   previewAction:{flexDirection:'row',gap:7,alignItems:'center',paddingHorizontal:11,
     paddingVertical:9,backgroundColor:'#F1ECF8',borderRadius:22},
   previewLabel:{color:PURPLE,fontWeight:'600',fontSize:12},
+  agentActivity:{borderWidth:1,borderColor:'#E8E1EE',backgroundColor:'#FBF8FC',
+    borderRadius:15,padding:13,marginVertical:13,gap:10},
+  agentHeading:{flexDirection:'row',alignItems:'center',gap:8},
+  agentActivityTitle:{fontSize:12.5,fontWeight:'700',color:INK},
+  agentActivityLine:{flexDirection:'row',alignItems:'flex-start',gap:9,paddingLeft:4},
+  agentActivityText:{fontSize:11.5,color:'#777079',flex:1,lineHeight:17},
   historyNotice:{color:MUTED,textAlign:'center',fontSize:11.5,paddingVertical:12},
   workspaceChoice:{minHeight:63,flexDirection:'row',alignItems:'center',gap:13,
     borderBottomWidth:1,borderColor:'#EBE7E2',paddingHorizontal:7,paddingVertical:12},

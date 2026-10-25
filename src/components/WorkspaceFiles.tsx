@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { managedWorkspace, type ManagedEntry } from '../lib/managedWorkspace';
 
@@ -14,6 +14,10 @@ export function WorkspaceFiles({workspaceId,onBack,onTerminal}:{
   const [editing,setEditing]=useState(false);
   const [loading,setLoading]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [gitOpen,setGitOpen]=useState(false);
+  const [gitReview,setGitReview]=useState('');
+  const [commitMessage,setCommitMessage]=useState('Update project from Noethara');
+  const [publishing,setPublishing]=useState(false);
   const [error,setError]=useState('');
   async function load(directory=folder){
     setError('');setLoading(true);
@@ -38,6 +42,27 @@ export function WorkspaceFiles({workspaceId,onBack,onTerminal}:{
     if(folder){void load(folder.split('/').slice(0,-1).join('/'));return;}
     onBack();
   }
+  async function reviewGit(){
+    setGitOpen(true);setGitReview('Checking Git changes…');
+    try {
+      const status=await managedWorkspace.review(workspaceId);
+      setGitReview([status.status,status.diff].filter(Boolean).join('\n\n')||'No changes to publish.');
+    }catch(e){setGitReview(e instanceof Error?e.message:'This workspace is not a Git clone.');}
+  }
+  function publishGit(){
+    Alert.alert('Publish to GitHub','Commit and push the listed changes to the repository? This updates GitHub.',[
+      {text:'Cancel',style:'cancel'},
+      {text:'Publish',onPress:()=>void (async()=>{
+        setPublishing(true);
+        try{
+          const result=await managedWorkspace.push(workspaceId,commitMessage);
+          setGitOpen(false);
+          Alert.alert('Published','Pushed '+result.files.length+' files to '+result.repo+' ('+result.branch+').');
+        }catch(e){Alert.alert('GitHub publish failed',e instanceof Error?e.message:'Push failed');}
+        finally{setPublishing(false);}
+      })()}
+    ]);
+  }
   function save(){
     if(!active)return;
     Alert.alert('Save file','Save your changes to '+active.path+' in the managed workspace?',[
@@ -58,6 +83,7 @@ export function WorkspaceFiles({workspaceId,onBack,onTerminal}:{
       <View style={styles.titleArea}><Text style={styles.title} numberOfLines={1}>{active?active.path.split('/').at(-1):workspaceId}</Text>
         <Text style={styles.subtitle} numberOfLines={1}>{active?.path||('/home/ubuntu/noethara-workspaces/'+workspaceId+'/'+folder)}</Text>
       </View>
+      <Pressable onPress={()=>void reviewGit()} style={styles.icon} accessibilityLabel="Review Git changes"><Feather name="github" size={20} color={colors.muted}/></Pressable>
       <Pressable onPress={onTerminal} style={styles.icon} accessibilityLabel="Open terminal for this project"><Feather name="terminal" size={21} color={colors.purple}/></Pressable>
     </View>
     {!!error&&<View style={styles.alert}><Text style={styles.alertText}>{error}</Text></View>}
@@ -86,10 +112,46 @@ export function WorkspaceFiles({workspaceId,onBack,onTerminal}:{
         </Pressable>)}
       </ScrollView>}
     </>}
+    <Modal visible={gitOpen} animationType="slide" transparent onRequestClose={()=>setGitOpen(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeading}>
+            <Text style={styles.modalTitle}>Review Git changes</Text>
+            <Pressable onPress={()=>setGitOpen(false)}><Feather name="x" size={22} color={colors.text}/></Pressable>
+          </View>
+          <Text style={styles.fieldLabel}>Changes in {workspaceId}</Text>
+          <ScrollView style={styles.reviewBody}>
+            <Text selectable style={styles.reviewText}>{gitReview}</Text>
+          </ScrollView>
+          <Text style={styles.fieldLabel}>Commit message</Text>
+          <TextInput value={commitMessage} onChangeText={setCommitMessage} style={styles.commitInput}
+            placeholder="Describe your changes" placeholderTextColor="#99949B"/>
+          <Pressable disabled={publishing||!gitReview.trim()||gitReview==='No changes to publish.'}
+            onPress={publishGit} style={[styles.publishButton,publishing&&{opacity:.65}]}>
+            <Text style={styles.publishText}>{publishing?'Publishing…':'Commit & push to GitHub'}</Text>
+          </Pressable>
+          <Text style={styles.disclaimer}>Publishing requires your approval. No forced pushes are performed.</Text>
+        </View>
+      </View>
+    </Modal>
   </View>;
 }
 const styles=StyleSheet.create({
  root:{flex:1,backgroundColor:colors.bg},
+ modalOverlay:{flex:1,backgroundColor:'rgba(21,18,27,.35)',justifyContent:'flex-end'},
+ modalSheet:{backgroundColor:colors.bg,borderTopLeftRadius:24,borderTopRightRadius:24,
+   paddingHorizontal:22,paddingTop:21,paddingBottom:35,maxHeight:'83%'},
+ modalHeading:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:17},
+ modalTitle:{fontSize:20,fontWeight:'700',color:colors.text},
+ fieldLabel:{fontSize:12,color:colors.muted,marginBottom:9},
+ reviewBody:{maxHeight:270,backgroundColor:'#FFFFFF',borderRadius:15,
+   borderWidth:1,borderColor:colors.border,marginBottom:17,padding:13},
+ reviewText:{color:'#454047',fontSize:11.5,fontFamily:'monospace',lineHeight:18},
+ commitInput:{height:49,borderRadius:13,backgroundColor:'#FFFFFF',borderWidth:1,
+   borderColor:colors.border,color:colors.text,paddingHorizontal:13,marginBottom:15,fontSize:13},
+ publishButton:{height:51,borderRadius:14,backgroundColor:'#242426',alignItems:'center',justifyContent:'center'},
+ publishText:{color:'#FFFFFF',fontWeight:'700',fontSize:14},
+ disclaimer:{fontSize:11,color:colors.muted,textAlign:'center',marginTop:13},
  header:{paddingHorizontal:15,height:78,flexDirection:'row',alignItems:'center',gap:10},
  icon:{width:37,height:43,justifyContent:'center',alignItems:'center'},
  titleArea:{flex:1,gap:5,minWidth:0},

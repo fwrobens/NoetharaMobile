@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { checkWebStyling } from './project-health.mjs';
 import { invalidateChecks, recordCheck, reconcilePlan } from './agent-checks.mjs';
 import { visionModelId, visionStatus } from './vision.mjs';
+import { isManagedViteCommand, assertNoDuplicatePreview, npmTestAvailable } from './agent-shell-guards.mjs';
+import { approvalTimeoutMs, _execute, _newJob } from './agent.mjs';
 
 test('Beam routes only when server has a Beam key, with explicit fallback otherwise',()=>{
   const beam=chooseAgentProvider('Beam-1.0-501B-A23B',{NOETHARA_BEAMAI_API_KEY:'fake-beam'});
@@ -130,5 +132,35 @@ test('web styling check fails closed for unstyled projects and accepts real CSS'
   assert.equal((await checkWebStyling(dir)).ok,true);
   await rm(join(dir,'dist','assets','index.css'));
   assert.match((await checkWebStyling(dir)).reason,/no CSS asset/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('duplicate Vite commands are stopped before the model triggers a 600-second approval wait',()=>{
+ const vite={scripts:{dev:'vite --host 127.0.0.1'}};
+ for(const command of ['npm run dev','npx vite --host 0.0.0.0','npm run dev -- --port 5201','cd src && npm run dev']){
+  assert.equal(isManagedViteCommand(command,vite),true,command);
+  assert.throws(()=>assertNoDuplicatePreview(command,vite),/start_preview/);
+ }
+ const api={scripts:{dev:'tsx watch src/server.ts'}};
+ assert.equal(isManagedViteCommand('npm run dev',api),false);
+ assert.doesNotThrow(()=>assertNoDuplicatePreview('npm run dev',api));
+ assert.equal(isManagedViteCommand('npm run build',vite),false);
+});
+test('approval requests expire promptly rather than waiting ten minutes',()=>{
+ assert.equal(approvalTimeoutMs({}),60000);
+ assert.equal(approvalTimeoutMs({NOETHARA_APPROVAL_TIMEOUT_MS:'45000'}),45000);
+ assert.equal(approvalTimeoutMs({NOETHARA_APPROVAL_TIMEOUT_MS:'800000'}),120000);
+ assert.equal(approvalTimeoutMs({NOETHARA_APPROVAL_TIMEOUT_MS:'2'}),1000);
+});
+test('npm test is cleanly skipped when no test script exists',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'noethara-no-tests-'));
+ try{
+  await writeFile(join(dir,'package.json'),JSON.stringify({name:'noethara-demo',scripts:{dev:'vite',build:'vite build'}}));
+  const job=_newJob('00000000-0000-4000-8000-000000000099','noethara-demo',{messages:[]});
+  const result=JSON.parse(await _execute(dir,'npm test',job));
+  assert.equal(result.skipped,true);
+  assert.equal(result.exitCode,0);
+  assert.equal(npmTestAvailable({scripts:{test:'node --test'}}),true);
+  assert.equal(npmTestAvailable({scripts:{dev:'vite'}}),false);
  }finally{await rm(dir,{recursive:true,force:true});}
 });

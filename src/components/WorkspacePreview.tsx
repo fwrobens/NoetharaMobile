@@ -99,7 +99,7 @@ const styles=StyleSheet.create({
   padding:13,borderRadius:14},
  loadingTitle:{fontSize:12.5,fontWeight:'600',color:INK},
  loadingDetail:{fontSize:11,color:MUTED,marginTop:3},
- errorOverlay:{...StyleSheet.absoluteFillObject,alignItems:'center',
+ errorOverlay:{position:'absolute',top:0,right:0,bottom:0,left:0,alignItems:'center',
   justifyContent:'center',paddingHorizontal:34,backgroundColor:'#FCFAF7'},
  errorIcon:{height:54,width:54,borderRadius:18,backgroundColor:'#FCF0EF',
   alignItems:'center',justifyContent:'center',marginBottom:16},

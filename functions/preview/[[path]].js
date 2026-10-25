@@ -45,7 +45,9 @@ export async function onRequest({ request }) {
     // WebSocket response objects must be returned intact for Cloudflare to
     // attach the live upstream socket (constructing Response(101) is invalid).
     if (response.status === 101) return response;
-    const result = new Response(response.body, response);
+    // 204/205/304 are bodyless HTTP statuses; browsers may send conditional GET.
+    const noBody = [204, 205, 304].includes(response.status);
+    const result = new Response(noBody ? null : response.body, response);
     result.headers.set('cache-control', 'private, no-store');
     result.headers.set('x-content-type-options', 'nosniff');
     // A generated app should not be able to frame or expose other pages.

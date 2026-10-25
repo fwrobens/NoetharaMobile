@@ -6,7 +6,7 @@ import { createClient, type Session } from '@supabase/supabase-js';
 import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import * as SecureStore from 'expo-secure-store';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 export const SUPABASE_URL = 'https://smiubazuuptrknffmouo.supabase.co';
@@ -35,12 +35,16 @@ export function getOAuthReturnUrl() { return ExpoLinking.createURL('auth/callbac
 async function persistGitHubToken(token: string | null, userId?: string) {
   githubToken = token;
   githubUserId = token && userId ? userId : null;
+  // Browsers do not have the native encrypted keychain. Keep GitHub tokens
+  // in memory only; never put them in localStorage or the static web bundle.
+  if(Platform.OS==='web')return;
   if (token && userId) await SecureStore.setItemAsync(GITHUB_TOKEN_KEY,JSON.stringify({token,userId}));
   else await SecureStore.deleteItemAsync(GITHUB_TOKEN_KEY);
 }
 async function restoreGitHubToken(userId:string) {
   if (githubToken && githubUserId === userId) return githubToken;
   githubToken=null;githubUserId=null;
+  if(Platform.OS==='web')return null;
   const stored=await SecureStore.getItemAsync(GITHUB_TOKEN_KEY);
   if (!stored) return null;
   try {

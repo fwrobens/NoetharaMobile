@@ -42,7 +42,9 @@ export async function startPreview(dir,id){
  return item;
 }
 export async function handlePreviewManagement(req,res,url,id,dir){
- const action=url.pathname.split('/')[3];
+ // /workspaces/:workspaceId/preview/:action — the fifth URL segment is the action.
+ const segments=url.pathname.split('/').filter(Boolean);
+ const action=segments[3];
  if(req.method==='POST'&&action==='start'){
   const preview=await startPreview(dir,id);
   const publicUrl='https://terminal.noethara.cloud/preview/'+encodeURIComponent(id)+'/?ticket='+preview.secret;

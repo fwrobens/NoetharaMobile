@@ -25,7 +25,7 @@ jobs:
       - name: Supabase Edge function type check
         run: deno check supabase/functions/noethara-api/index.ts
       - name: Managed workspace API tests
-        run: node --test runtime/workspaces.test.mjs
+        run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs
       - name: Runtime syntax checks
         run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs && node --check runtime/agent.mjs && node --check runtime/preview.mjs
       - name: TypeScript check

@@ -145,7 +145,7 @@ export function ConnectedChat({
         setAgentSteps(update.events);
         setAgentMeta({plan:update.plan||[],phase:update.phase||update.status,files:update.files||[],
           checks:update.checks||{},startedAt:update.startedAt||null,checkpoints:update.checkpoints||[],
-          pendingApproval:update.pendingApproval||null});
+          pendingApproval:update.pendingApproval||null,metrics:update.metrics||null});
         const recent=update.events.filter(e=>['commentary','read','write','command','preview','error','paused'].includes(e.kind)).at(-1);
         setWorkspaceStatus(recent?.message||'Working in '+active+'…');
       }

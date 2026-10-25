@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleWorkspaceRequest, workspaceDirectory } from './workspaces.mjs';
 import { handleAgentRequest } from './agent.mjs';
+import { servePreview, handlePreviewManagement } from './preview.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || '8789');
@@ -38,6 +39,9 @@ if (!SUPABASE_URL.startsWith('https://') || !PUBLISHABLE_KEY || ALLOWED_USERS.si
 const server = createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
   res.setHeader('cache-control','no-store');
+  if(url.pathname.startsWith('/preview/')){
+    await servePreview(req,res,url);return;
+  }
   if(url.pathname==='/workspaces' || url.pathname.startsWith('/workspaces/')){
     const bearer=req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
     const userId=await authenticate(bearer);
@@ -56,6 +60,20 @@ const server = createServer(async(req,res)=>{
       }
       return;
     }
+    if(url.pathname.match(/^\/workspaces\/[\w-]+\/preview(?:\/|$)/)){
+      if(!userId){res.writeHead(401,{'content-type':'application/json'});
+        res.end(JSON.stringify({error:'Not authorized'}));return;}
+      try{
+        const id=url.pathname.split('/')[2];
+        const dir=await workspaceDirectory(id);
+        if(!await handlePreviewManagement(req,res,url,id,dir)){
+          res.writeHead(404,{'content-type':'application/json'});
+          res.end(JSON.stringify({error:'Unknown preview endpoint'}));
+        }
+      }catch(e){res.writeHead(400,{'content-type':'application/json'});
+        res.end(JSON.stringify({error:String(e.message||e).slice(0,240)}));}
+      return;
+    }
     await handleWorkspaceRequest(req,res,url,userId);
     return;
   }
@@ -64,7 +82,7 @@ const server = createServer(async(req,res)=>{
       req.headers.authorization.slice(7) : '';
     const userId=await authenticate(bearer);
     res.writeHead(userId?200:401,{'content-type':'application/json'});
-    res.end(JSON.stringify(userId?{status:'awake',gatewayVersion:2,workspaceAPI:true,awsAgentConfigured:Boolean(process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY),workspace:'managed',agents:[...AGENTS],
+    res.end(JSON.stringify(userId?{status:'awake',gatewayVersion:2,workspaceAPI:true,previewAPI:true,awsAgentConfigured:Boolean(process.env.NOETHARA_NVIDIA_API_KEY||process.env.NVIDIA_API_KEY),workspace:'managed',agents:[...AGENTS],
       cliInstalled:Object.fromEntries([...AGENTS].map(name=>[name,isCliInstalled(name)]))}:
       {error:'Not authorized'}));
     return;

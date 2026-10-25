@@ -18,7 +18,24 @@ if [ -d runtime/node_modules/playwright ]; then
   else
     echo "NOTE: run once with sudo:  cd ~/NoetharaMobile/runtime && sudo env \"PATH=\$PATH\" npx playwright install-deps chromium"
   fi
-  node --input-type=module -e "import('playwright').then(p=>p.chromium.launch({args:['--no-sandbox']})).then(b=>{console.log('Design review browser: OK');return b.close()}).catch(e=>console.log('Design review browser: unavailable -',String(e.message).split('\\n')[0]))" 2>/dev/null || true
+  # Playwright is installed under runtime/node_modules; resolve the ESM import
+  # from that package boundary rather than the repo root (which has no playwright).
+  (
+    cd runtime
+    node --input-type=module -e "
+      import { chromium } from 'playwright';
+      let browser;
+      try {
+        browser = await chromium.launch({args:['--no-sandbox','--disable-dev-shm-usage']});
+        console.log('Design review browser: OK');
+      } catch (e) {
+        console.error('Design review browser: unavailable - ' + String(e.message || e).split('\\n')[0]);
+        process.exitCode = 1;
+      } finally {
+        if (browser) await browser.close();
+      }
+    "
+  ) || echo 'WARN: Chromium launch check failed. Screenshot-based design reviews will be unavailable until its dependencies are fixed.'
 fi
 
 # Isolated per-project sandbox for agent shell commands (Docker).

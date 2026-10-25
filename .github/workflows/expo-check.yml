@@ -29,7 +29,7 @@ jobs:
       - name: Install isolated gateway dependencies
         run: npm install --prefix runtime --no-audit --no-fund
       - name: Managed workspace API tests
-        run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs
+        run: node --test runtime/workspaces.test.mjs runtime/agent.test.mjs runtime/pages-preview.test.mjs
       - name: Runtime syntax checks
         run: node --check runtime/workspaces.mjs && node --check runtime/server.mjs && node --check runtime/agent.mjs && node --check runtime/preview.mjs
       - name: TypeScript check

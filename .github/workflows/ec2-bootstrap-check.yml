@@ -33,3 +33,32 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm ls --depth=0
+      - name: Exercise runtime imports and protected HTTP routes
+        working-directory: runtime
+        run: |
+          set -euo pipefail
+          node --check preview.mjs
+          node --check agent.mjs
+          node --check workspaces.mjs
+          node --check server.mjs
+          # Syntax-only checks cannot detect an invalid WebSocketServer import.
+          node --input-type=module -e "await import('./preview.mjs'); console.log('Preview WebSocket constructor initialized')"
+          PORT=18789 NOETHARA_SUPABASE_URL=https://example.supabase.co \
+            NOETHARA_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
+            NOETHARA_ALLOWED_USER_IDS=00000000-0000-4000-8000-000000000001 \
+            node server.mjs > /tmp/noethara-runtime-smoke.log 2>&1 &
+          gateway_pid=$!
+          trap 'kill "$gateway_pid" 2>/dev/null || true' EXIT
+          status=000
+          for attempt in $(seq 1 20); do
+            status=$(curl --silent --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/status || true)
+            if [ "$status" = 401 ]; then break; fi
+            if ! kill -0 "$gateway_pid" 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          if [ "$status" != 401 ]; then
+            cat /tmp/noethara-runtime-smoke.log
+            echo "Gateway startup regression: expected HTTP 401, received $status"
+            exit 1
+          fi
+          echo "Authorized gateway initialized, rejected unsigned request (401)."

@@ -3,7 +3,8 @@
 // Never add user-supplied domains, ports or filesystem paths to this proxy.
 import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import WebSocket, { WebSocketServer } from 'ws';
+import WebSocket from 'ws';
+const WebSocketServer = WebSocket.WebSocketServer || WebSocket.Server;
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
